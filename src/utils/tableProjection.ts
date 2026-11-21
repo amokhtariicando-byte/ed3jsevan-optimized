@@ -36,12 +36,6 @@ export interface ProjectedSeat {
   depthZ: number;
   /** Normalized depth in [-1, 1]: +1 is dead-front (6 o'clock), -1 is dead-back (12 o'clock) */
   frontness: number;
-  /** Subtle, natural optical depth-of-field blur in pixels (0 at front focus, gentle ~1.5px on sides, max ~4.2px at far rear) */
-  blurPx: number;
-  /** Subtle studio light falloff brightness multiplier (1.02 at front focus -> 0.78 at far rear) */
-  brightness: number;
-  /** Saturation multiplier for subtle atmospheric depth */
-  saturate: number;
   /** Painter's order z-index guaranteed strictly monotonic with depthZ */
   zIndex: number;
 }
@@ -83,18 +77,6 @@ export function projectTableSeat(input: TableProjectionInput): ProjectedSeat {
   // frontness = +1 when seat is at frontmost 6-o'clock rim (localY = +scaledR), -1 at 12-o'clock
   const frontness = scaledR > 0 ? Math.max(-1, Math.min(1, localY / scaledR)) : 1;
 
-  // Refined, subtle optical depth-of-field curve:
-  // - frontness >= 0.94 (focal seat dead front): crisp 0px blur
-  // - adjacent left/right seats (frontness ~0.65..0.8): light 1.2..1.7px softness (clearly recognizable, never smeared)
-  // - far rear rim (frontness ~ -1): gentle 4.2px bokeh
-  const focusGap = Math.max(0, 1 - frontness);
-  const blurPx =
-    focusGap < 0.04
-      ? 0
-      : Number(Math.min(4.2, Math.pow(focusGap, 0.78) * 2.45).toFixed(2));
-
-  const brightness = Number((1.02 - focusGap * 0.12).toFixed(3));
-  const saturate = Number((1.03 - focusGap * 0.08).toFixed(3));
   const zIndex = Math.round(rotZ + 2000);
 
   return {
@@ -103,9 +85,6 @@ export function projectTableSeat(input: TableProjectionInput): ProjectedSeat {
     perspScale,
     depthZ: rotZ,
     frontness,
-    blurPx,
-    brightness,
-    saturate,
     zIndex,
   };
 }

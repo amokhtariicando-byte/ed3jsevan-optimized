@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { CategoryId, MENU_CATEGORIES, MENU_ITEMS } from '../data/menuData';
 import { toPersianDigits } from '../utils/menuLogic';
@@ -18,14 +18,34 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
   onSelect,
   onClose,
 }) => {
+  const [panelState, setPanelState] = useState<
+    'closed' | 'open' | 'closing'
+  >('closed');
+  const closeTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!open) return;
+    window.clearTimeout(closeTimerRef.current);
+    setPanelState('closed');
+    const raf = requestAnimationFrame(() => setPanelState('open'));
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
+  useEffect(() => () => window.clearTimeout(closeTimerRef.current), []);
+
+  const handleClose = useCallback(() => {
+    setPanelState('closing');
+    closeTimerRef.current = window.setTimeout(onClose, 200);
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 
@@ -34,12 +54,16 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="mobile-categories-title"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[#060A13]/72 backdrop-blur-[2px]"
+      className="eyvan-overlay-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#060A13]/72 backdrop-blur-[2px]"
+      data-state={panelState === 'open' ? 'open' : 'closed'}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <div className="eyvan-text-enter w-full max-w-[540px] rounded-t-[20px] border-t border-x border-[rgba(244,241,234,0.14)] bg-[#101829] px-5 pt-4 pb-6 shadow-2xl">
+      <div
+        className="eyvan-overlay-panel eyvan-sheet-panel w-full max-w-[540px] rounded-t-[20px] border-t border-x border-[rgba(244,241,234,0.14)] bg-[#101829] px-5 pt-4 pb-6 shadow-2xl"
+        data-state={panelState === 'open' ? 'open' : 'closed'}
+      >
         <div className="mx-auto mb-3.5 h-1 w-10 rounded-full bg-[rgba(244,241,234,0.18)]" />
 
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -56,7 +80,7 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="بستن فهرست دسته‌بندی‌ها"
             className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-[rgba(244,241,234,0.14)] bg-[#17233B] text-[#F8F5EE] transition-colors hover:border-[#D4B47C]"
           >
@@ -70,7 +94,7 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
               type="button"
               onClick={() => {
                 onSelect('all');
-                onClose();
+                handleClose();
               }}
               className={`col-span-2 flex items-center justify-between rounded-[12px] border px-4 py-3 text-right transition-colors ${
                 activeCategoryId === 'all'
@@ -102,7 +126,7 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
                 type="button"
                 onClick={() => {
                   onSelect(category.id);
-                  onClose();
+                  handleClose();
                 }}
                 className={`flex flex-col items-start justify-between rounded-[12px] border px-3.5 py-3 text-right transition-colors ${
                   isActive

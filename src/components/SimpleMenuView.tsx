@@ -20,7 +20,7 @@ import {
   groupMenuForSimpleView,
   toPersianDigits,
 } from '../utils/menuLogic';
-import { InstagramIcon } from './CafeInfoModal';
+import { InstagramIcon } from './InstagramIcon';
 
 interface SimpleMenuViewProps {
   selectedCategory: CategoryId | 'all';
@@ -101,7 +101,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
         </div>
 
         {/* Sticky Category Filter Bar (Desktop full strip + Mobile pinned Categories Sheet trigger) */}
-        <div className="sticky top-16 z-20 -mx-4 border-b border-[rgba(244,241,234,0.09)] bg-[#0E1525]/97 px-4 py-3 sm:-mx-6 sm:px-6 md:backdrop-blur-md lg:-mx-10 lg:px-10">
+        <div className="sticky top-16 z-20 -mx-4 border-b border-[rgba(244,241,234,0.09)] bg-[#0E1525]/97 px-4 py-3 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
           <div className="flex items-center gap-2">
             {/* Pinned Mobile Category Sheet Trigger */}
             <button
@@ -179,7 +179,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
             </button>
           </div>
         ) : (
-          <div className="mt-8 space-y-12">
+          <div key={selectedCategory} className="mt-8 space-y-12">
             {sections.map(({ category, items }) => (
               <section
                 key={category.id}
@@ -245,7 +245,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {items.map((item) => {
+                    {items.map((item, idx) => {
                       const hasDualBean =
                         typeof item.priceBlend50 === 'number' &&
                         typeof item.priceArabica100 === 'number';
@@ -257,7 +257,8 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                       return (
                         <article
                           key={item.id}
-                          className="group flex flex-col overflow-hidden rounded-[14px] border border-[rgba(244,241,234,0.1)] bg-[#131E33] transition-colors hover:border-[rgba(212,180,124,0.38)]"
+                          className="group flex flex-col overflow-hidden rounded-[14px] border border-[rgba(244,241,234,0.1)] bg-[#131E33] transition-colors hover:border-[rgba(212,180,124,0.38)] eyvan-card-enter"
+                          style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
                         >
                           {/* Top Row: Studio Eye-Level Photo + Name + Description */}
                           <div className="flex gap-3.5 p-3.5">
@@ -273,7 +274,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                                 loading="lazy"
                                 decoding="async"
                                 referrerPolicy="no-referrer"
-                                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                                className="h-full w-full object-cover transition-transform duration-250 eyvan-card-img"
                               />
                             </button>
 

@@ -50,6 +50,29 @@ interface AnimatedCameraState {
 const FOCAL_ANGLE_DEG = 180; // 6 o'clock front-center in BOTH top-down and eye-level modes
 
 /**
+ * Cached style writer: skips the DOM write when the value is unchanged for
+ * that element+property. WeakMap entries die with the element, so no cleanup
+ * is needed when seats unmount/remount.
+ */
+const styleCache = new WeakMap<HTMLElement, Record<string, string>>();
+
+function writeStyle(
+  el: HTMLElement | null,
+  prop: 'transform' | 'opacity' | 'zIndex' | 'pointerEvents' | 'visibility',
+  value: string,
+): void {
+  if (!el) return;
+  let cache = styleCache.get(el);
+  if (!cache) {
+    cache = {};
+    styleCache.set(el, cache);
+  }
+  if (cache[prop] === value) return;
+  cache[prop] = value;
+  (el.style as unknown as Record<string, string>)[prop] = value;
+}
+
+/**
  * Returns a subtle colored caustic light-bounce RGBA for translucent iced glassware on white marble.
  */
 function getGlassCausticTint(cutoutPath: string): string | null {
@@ -347,22 +370,34 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
   useEffect(() => {
     if (category.comingSoon || items.length === 0) return;
     const uniqueCutouts = Array.from(new Set(items.map((i) => i.cutoutImage)));
-    const timer = window.setTimeout(() => {
+    const preload = () => {
       for (const src of uniqueCutouts) {
         const img = new Image();
         img.decoding = 'async';
         img.src = src;
       }
-    }, 650);
+    };
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(preload, { timeout: 2000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const timer = window.setTimeout(preload, 1200);
     return () => window.clearTimeout(timer);
   }, [category.id, category.comingSoon, items]);
 
   useEffect(() => {
+    let timer: number | undefined;
     const onResize = () => {
-      setViewport({ width: window.innerWidth, height: window.innerHeight });
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        setViewport({ width: window.innerWidth, height: window.innerHeight });
+      }, 150);
     };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
 
   // Target camera & turntable geometry for the current viewport and mode
@@ -520,36 +555,33 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     const standingReveal = Math.max(0, Math.min(1, (pitchRatio - 0.18) / 0.82));
     const halfD = meta.tableDiameter / 2;
 
-    if (topGlowRef.current) {
-      topGlowRef.current.style.opacity = (1 - pitchRatio).toFixed(3);
-    }
-    if (frontGlowRef.current) {
-      frontGlowRef.current.style.opacity = pitchRatio.toFixed(3);
-    }
+    writeStyle(topGlowRef.current, 'opacity', (1 - pitchRatio).toFixed(3));
+    writeStyle(frontGlowRef.current, 'opacity', pitchRatio.toFixed(3));
 
-    if (cameraRigRef.current) {
-      cameraRigRef.current.style.transform = `translate3d(${(state.cx - halfD).toFixed(2)}px, ${(state.cy - halfD).toFixed(2)}px, 0) perspective(${state.perspective.toFixed(0)}px) rotateX(${state.pitch.toFixed(3)}deg) scale(${state.scale.toFixed(4)})`;
-    }
+    writeStyle(
+      cameraRigRef.current,
+      'transform',
+      `translate3d(${(state.cx - halfD).toFixed(2)}px, ${(state.cy - halfD).toFixed(2)}px, 0) perspective(${state.perspective.toFixed(0)}px) rotateX(${state.pitch.toFixed(3)}deg) scale(${state.scale.toFixed(4)})`,
+    );
 
-    if (slabEdgeRef.current) {
-      slabEdgeRef.current.style.opacity = Math.min(1, pitchRatio * 1.4).toFixed(
-        3,
-      );
-    }
+    writeStyle(
+      slabEdgeRef.current,
+      'opacity',
+      Math.min(1, pitchRatio * 1.4).toFixed(3),
+    );
 
-    if (wheelDiscRef.current) {
-      wheelDiscRef.current.style.transform = `rotateZ(${state.wheelAngle.toFixed(3)}deg)`;
-    }
+    writeStyle(
+      wheelDiscRef.current,
+      'transform',
+      `rotateZ(${state.wheelAngle.toFixed(3)}deg)`,
+    );
 
     if (!meta.comingSoon) {
       const count = Math.max(1, meta.items.length);
       const coasterOpacity = Math.min(1, standingReveal * 1.2).toFixed(3);
 
       for (let i = 0; i < count; i++) {
-        const coaster = coasterRefs.current[i];
-        if (coaster) {
-          coaster.style.opacity = coasterOpacity;
-        }
+        writeStyle(coasterRefs.current[i], 'opacity', coasterOpacity);
         const plateBtn = plateBtnRefs.current[i];
         if (plateBtn) {
           const baseOp = meta.overviewMode
@@ -557,16 +589,27 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
             : i === meta.activeIndex
               ? 1
               : 0.88;
-          plateBtn.style.opacity = (plateOpacityFactor * baseOp).toFixed(3);
-          plateBtn.style.pointerEvents =
-            meta.isFrontCamera || plateOpacityFactor <= 0.02 ? 'none' : 'auto';
+          writeStyle(
+            plateBtn,
+            'opacity',
+            (plateOpacityFactor * baseOp).toFixed(3),
+          );
+          writeStyle(
+            plateBtn,
+            'pointerEvents',
+            meta.isFrontCamera || plateOpacityFactor <= 0.02 ? 'none' : 'auto',
+          );
         }
       }
 
       const standingLayer = standingLayerRef.current;
       if (standingLayer) {
         const visible = standingReveal > 0.01;
-        standingLayer.style.visibility = visible ? 'visible' : 'hidden';
+        writeStyle(
+          standingLayer,
+          'visibility',
+          visible ? 'visible' : 'hidden',
+        );
 
         if (visible) {
           const revealScaleY = 0.58 + standingReveal * 0.42;
@@ -593,14 +636,19 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                 ? 1
                 : Math.max(0.76, 0.76 + (proj.frontness + 1) * 0.22));
 
-            wrapper.style.transform = `translate3d(${proj.screenX.toFixed(2)}px, ${proj.screenY.toFixed(2)}px, 0)`;
-            wrapper.style.zIndex = String(proj.zIndex);
-            wrapper.style.opacity = seatOpacity.toFixed(3);
+            writeStyle(
+              wrapper,
+              'transform',
+              `translate3d(${proj.screenX.toFixed(2)}px, ${proj.screenY.toFixed(2)}px, 0)`,
+            );
+            writeStyle(wrapper, 'zIndex', String(proj.zIndex));
+            writeStyle(wrapper, 'opacity', seatOpacity.toFixed(3));
 
-            const shadowEl = seatShadowRefs.current[i];
-            if (shadowEl) {
-              shadowEl.style.transform = `translate3d(-50%, -44%, 0) scale(${proj.perspScale.toFixed(4)})`;
-            }
+            writeStyle(
+              seatShadowRefs.current[i],
+              'transform',
+              `translate3d(-50%, -44%, 0) scale(${proj.perspScale.toFixed(4)})`,
+            );
 
             const btnEl = seatBtnRefs.current[i];
             if (btnEl) {
@@ -609,7 +657,11 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
               const yOff = isCup ? 3 : 1;
               const sx = proj.perspScale;
               const sy = proj.perspScale * revealScaleY;
-              btnEl.style.transform = `translate3d(${shiftPct}%, ${yOff}px, 0) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`;
+              writeStyle(
+                btnEl,
+                'transform',
+                `translate3d(${shiftPct}%, ${yOff}px, 0) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`,
+              );
             }
           }
         }
@@ -646,7 +698,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       setHoveredOverviewIndex(null);
     } else {
       nextWheelAngle = computeShortestWheelAngle(
-        targetWheelAngleRef.current,
+        animRef.current.wheelAngle,
         activeIndex,
         count,
         FOCAL_ANGLE_DEG,
@@ -672,10 +724,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
-      const snapped: AnimatedCameraState = {
-        ...target,
-        pitch: categoryChanged ? target.pitch : animRef.current.pitch,
-      };
+      const snapped: AnimatedCameraState = { ...target };
       animRef.current = snapped;
       paintFrame(snapped);
       if (!isFrontCamera) {
@@ -687,7 +736,10 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     const start: AnimatedCameraState = { ...animRef.current };
     const startTime = performance.now();
     const isCameraMove = Math.abs(target.pitch - start.pitch) > 1;
-    const durationMs = isCameraMove ? 740 : 620;
+    const wheelDelta = Math.abs(nextWheelAngle - animRef.current.wheelAngle);
+    const durationMs = isCameraMove
+      ? 500
+      : Math.min(420, Math.max(260, 220 + wheelDelta * 1.1));
 
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
@@ -745,10 +797,26 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
   // Wheel scroll & touch-swipe drag handling on the circular stage
   const wheelLockRef = useRef<number>(0);
-  const dragStartRef = useRef<{ x: number; y: number; active: boolean }>({
-    x: 0,
-    y: 0,
+  const dragStartRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    startWheelAngle: number;
+    startTime: number;
+    lastMoveTime: number;
+    lastDx: number;
+  }>({
     active: false,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    startWheelAngle: 0,
+    startTime: 0,
+    lastMoveTime: 0,
+    lastDx: 0,
   });
 
   const handleStageWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -764,21 +832,147 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (overviewMode || category.comingSoon || items.length <= 1) return;
-    dragStartRef.current = { x: e.clientX, y: e.clientY, active: true };
+    // Catch any in-flight spin/camera move so the drag starts from the live angle
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    const now = performance.now();
+    dragStartRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      startWheelAngle: animRef.current.wheelAngle,
+      startTime: now,
+      lastMoveTime: now,
+      lastDx: 0,
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStartRef.current;
+    if (!drag.active) return;
+    // If the press was lost (pointerup missed, e.g. released outside the
+    // window), finish the drag as a cancel instead of tracking a hover.
+    if (e.buttons === 0) {
+      finishDrag(e.clientX, e.clientY, false);
+      return;
+    }
+    const now = performance.now();
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    // 1:1 tracking along the dominant axis: the wheel IS the finger (no easing)
+    const along = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+    const draggedAngle = drag.startWheelAngle + along * 0.35;
+    animRef.current = { ...animRef.current, wheelAngle: draggedAngle };
+    paintFrame(animRef.current);
+    // Refresh the trailing ~100ms velocity snapshot at most every 100ms
+    if (now - drag.lastMoveTime >= 100) {
+      drag.lastX = e.clientX;
+      drag.lastY = e.clientY;
+      drag.lastMoveTime = now;
+      drag.lastDx = along;
+    }
+  };
+
+  const finishDrag = (
+    clientX: number,
+    clientY: number,
+    allowFlick: boolean,
+  ) => {
+    const drag = dragStartRef.current;
+    if (!drag.active) return;
+    drag.active = false;
+
+    const now = performance.now();
+    const dx = clientX - drag.startX;
+    const dy = clientY - drag.startY;
+    const dist = Math.hypot(dx, dy);
+
+    // Tap: snap back instantly to the pre-drag angle — no step, no settle
+    if (dist < 10) {
+      animRef.current = {
+        ...animRef.current,
+        wheelAngle: drag.startWheelAngle,
+      };
+      paintFrame(animRef.current);
+      return;
+    }
+
+    const dominantDx = Math.abs(dx) >= Math.abs(dy);
+    const along = dominantDx ? dx : dy;
+    // Release velocity over the trailing ~100ms window (snapshot -> release)
+    const velocityPxPerMs =
+      Math.abs(along - drag.lastDx) / Math.max(1, now - drag.lastMoveTime);
+
+    // Fast flick: step once in the flick direction (drag-left/up = next)
+    if (allowFlick && velocityPxPerMs > 0.11) {
+      onStep(along - drag.lastDx < 0 ? 1 : -1);
+      return;
+    }
+
+    // Otherwise settle onto the nearest slot (closest to the 6 o'clock focal)
+    const count = Math.max(1, items.length);
+    const wheel = animRef.current.wheelAngle;
+    let nearestIndex = activeIndex;
+    let bestDelta = Infinity;
+    for (let i = 0; i < count; i++) {
+      const slotAngle = (i / count) * 360 + wheel;
+      const delta = (((slotAngle - FOCAL_ANGLE_DEG) % 360) + 540) % 360 - 180;
+      const absDelta = Math.abs(delta);
+      if (absDelta < bestDelta) {
+        bestDelta = absDelta;
+        nearestIndex = i;
+      }
+    }
+
+    if (nearestIndex !== activeIndex) {
+      onSelectIndex(nearestIndex);
+      return;
+    }
+
+    // Already on the nearest item: local 300ms ease-out settle back to the
+    // exact slot angle. (Calling onSelectIndex(activeIndex) would NOT re-run
+    // the animation effect — React bails out on identical state.)
+    const targetAngle = computeShortestWheelAngle(
+      animRef.current.wheelAngle,
+      activeIndex,
+      count,
+      FOCAL_ANGLE_DEG,
+    );
+    targetWheelAngleRef.current = targetAngle;
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
+    const startAngle = animRef.current.wheelAngle;
+    const settleStart = performance.now();
+    const settleDurationMs = 300;
+    const settleTick = (tickNow: number) => {
+      const t = Math.min(1, (tickNow - settleStart) / settleDurationMs);
+      const eased = easeOutQuart(t);
+      const current: AnimatedCameraState = {
+        ...animRef.current,
+        wheelAngle: startAngle + (targetAngle - startAngle) * eased,
+      };
+      animRef.current = current;
+      paintFrame(current);
+      if (t < 1) {
+        rafIdRef.current = requestAnimationFrame(settleTick);
+      } else {
+        rafIdRef.current = null;
+      }
+    };
+    rafIdRef.current = requestAnimationFrame(settleTick);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragStartRef.current.active) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    dragStartRef.current.active = false;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 34) return;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      onStep(dx < 0 ? 1 : -1);
-    } else {
-      onStep(dy < 0 ? 1 : -1);
-    }
+    finishDrag(e.clientX, e.clientY, true);
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    finishDrag(e.clientX, e.clientY, false);
   };
 
   const hoveredOverviewItem =
@@ -794,7 +988,9 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     <div
       onWheel={handleStageWheel}
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       aria-label="میز دوّار نمایش محصولات کافه ایوان"
       className="pointer-events-auto absolute inset-0 overflow-hidden select-none touch-pan-y"
     >
@@ -857,8 +1053,9 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
           {/* Physically Rotating Circular Alabaster-Marble Disc */}
           <div
+            key={category.id}
             ref={wheelDiscRef}
-            className="eyvan-rotary-table relative h-full w-full rounded-full will-change-transform"
+            className="eyvan-table-swap eyvan-rotary-table relative h-full w-full rounded-full will-change-transform"
           >
             {/* Asymmetric natural stone veining + brass radial compass inlays */}
             <MarbleTableInlays
@@ -968,11 +1165,10 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                             : `${item.name} — انتخاب روی میز`
                         }
                         aria-pressed={isActive}
-                        className="group absolute inset-0 cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293B5F]"
+                        className="eyvan-stage-btn eyvan-plate-scale group absolute inset-0 cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293B5F]"
                         style={{
                           transform: `scale(${plateScale})`,
-                          transition:
-                            'transform 460ms cubic-bezier(0.22, 1, 0.36, 1)',
+                          transition: 'transform 300ms var(--ease-out)',
                         }}
                       >
                         {overviewMode && (isActive || isHovered) && (
@@ -1013,10 +1209,14 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
           {/* Non-Rotating Center Medallion (Full-Table Overview Mode only) */}
           <div
-            className={`pointer-events-none absolute top-1/2 left-1/2 flex h-[34%] w-[34%] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-[#AF894B]/28 bg-[#F2EFE9]/92 px-6 text-center transition-opacity duration-500 ${
+            className={`pointer-events-none absolute top-1/2 left-1/2 flex h-[34%] w-[34%] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-[#AF894B]/28 bg-[#F2EFE9]/92 px-6 text-center transition-[opacity,transform] duration-300 ${
               overviewMode ? 'opacity-100' : 'opacity-0'
             }`}
-            style={{ transform: 'translate(-50%, -50%) translateZ(3px)' }}
+            style={{
+              transform: overviewMode
+                ? 'translate(-50%, -50%) translateZ(3px) scale(1)'
+                : 'translate(-50%, -50%) translateZ(3px) scale(0.95)',
+            }}
           >
             <EyvanLogo variant="mark" tone="navy" className="scale-90" />
             {category.comingSoon ? (
@@ -1113,7 +1313,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                     seatShadowRefs.current[idx] = el;
                   }}
                   aria-hidden="true"
-                  className="pointer-events-none absolute top-0 left-0 will-change-transform"
+                  className="pointer-events-none absolute top-0 left-0"
                   style={{
                     width: `${shadowBoxW}px`,
                     height: `${shadowBoxH}px`,
@@ -1143,7 +1343,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                       ? `${item.name} — بازگشت به نمای بالا`
                       : `${item.name} — چرخاندن میز و نمایش از روبه‌رو`
                   }
-                  className="pointer-events-auto absolute bottom-0 left-0 cursor-pointer border-0 bg-transparent p-0 will-change-transform focus-visible:outline-none"
+                  className="eyvan-stage-btn pointer-events-auto absolute bottom-0 left-0 cursor-pointer border-0 bg-transparent p-0 focus-visible:outline-none"
                   style={{
                     height: `${baseHeight}px`,
                     width: 'auto',

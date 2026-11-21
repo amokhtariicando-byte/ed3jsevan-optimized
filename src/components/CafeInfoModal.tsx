@@ -1,26 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Clock, Copy, ExternalLink, MapPin, Thermometer, X } from 'lucide-react';
 import { CAFE_INFO } from '../data/menuData';
 import { EyvanLogo } from './EyvanLogo';
-
-export const InstagramIcon: React.FC<{ className?: string }> = ({
-  className = 'h-4 w-4',
-}) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-    className={className}
-  >
-    <rect x="2.5" y="2.5" width="19" height="19" rx="5" />
-    <circle cx="12" cy="12" r="4.2" />
-    <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" />
-  </svg>
-);
+import { InstagramIcon } from './InstagramIcon';
 
 interface CafeInfoModalProps {
   open: boolean;
@@ -32,15 +14,34 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [panelState, setPanelState] = useState<
+    'closed' | 'open' | 'closing'
+  >('closed');
+  const closeTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!open) return;
+    window.clearTimeout(closeTimerRef.current);
+    setPanelState('closed');
+    const raf = requestAnimationFrame(() => setPanelState('open'));
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
+  useEffect(() => () => window.clearTimeout(closeTimerRef.current), []);
+
+  const handleClose = useCallback(() => {
+    setPanelState('closing');
+    closeTimerRef.current = window.setTimeout(onClose, 200);
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 
@@ -59,12 +60,16 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="cafe-info-title"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[#060B14]/78 p-0 sm:items-center sm:p-6"
+      className="eyvan-overlay-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#060B14]/78 p-0 sm:items-center sm:p-6"
+      data-state={panelState === 'open' ? 'open' : 'closed'}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <div className="eyvan-enter flex max-h-[90vh] w-full max-w-[600px] flex-col overflow-hidden rounded-t-[20px] border border-[rgba(244,241,234,0.12)] bg-[#131C30] sm:rounded-[20px]">
+      <div
+        className="eyvan-overlay-panel eyvan-modal-panel flex max-h-[90vh] w-full max-w-[600px] flex-col overflow-hidden rounded-t-[20px] border border-[rgba(244,241,234,0.12)] bg-[#131C30] sm:rounded-[20px]"
+        data-state={panelState === 'open' ? 'open' : 'closed'}
+      >
         <div className="flex items-center justify-between border-b border-[rgba(244,241,234,0.09)] px-6 py-4">
           <h2
             id="cafe-info-title"
@@ -74,7 +79,7 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="بستن پنجره مشخصات کافه"
             className="flex h-10 w-10 items-center justify-center rounded-[10px] border border-[rgba(244,241,234,0.12)] text-[#B8C0CC] transition-colors hover:border-[#D4B47C] hover:text-[#F4F1EA]"
           >

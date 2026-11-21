@@ -1,4 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -30,13 +38,42 @@ import {
 } from './utils/menuLogic';
 import { EyvanLogo } from './components/EyvanLogo';
 import { CameraAngle, RotaryTableStage } from './components/RotaryTableStage';
-import { DrinkCustomizeDrawer } from './components/DrinkCustomizeDrawer';
-import { CafeInfoModal, InstagramIcon } from './components/CafeInfoModal';
-import { SearchOverlay } from './components/SearchOverlay';
-import { SimpleMenuView } from './components/SimpleMenuView';
-import { MobileCategorySheet } from './components/MobileCategorySheet';
+import { InstagramIcon } from './components/InstagramIcon';
+
+const SimpleMenuView = lazy(() =>
+  import('./components/SimpleMenuView').then((m) => ({
+    default: m.SimpleMenuView,
+  })),
+);
+const DrinkCustomizeDrawer = lazy(() =>
+  import('./components/DrinkCustomizeDrawer').then((m) => ({
+    default: m.DrinkCustomizeDrawer,
+  })),
+);
+const CafeInfoModal = lazy(() =>
+  import('./components/CafeInfoModal').then((m) => ({
+    default: m.CafeInfoModal,
+  })),
+);
+const SearchOverlay = lazy(() =>
+  import('./components/SearchOverlay').then((m) => ({
+    default: m.SearchOverlay,
+  })),
+);
+const MobileCategorySheet = lazy(() =>
+  import('./components/MobileCategorySheet').then((m) => ({
+    default: m.MobileCategorySheet,
+  })),
+);
 
 type ViewMode = 'table' | 'simple';
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  );
+}
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
@@ -60,6 +97,8 @@ export default function App() {
   const mobileDockButtonsRef = useRef<Record<string, HTMLButtonElement | null>>(
     {},
   );
+
+  const lastKeyStepRef = useRef<number>(0);
 
   const activeCategory = useMemo(
     () =>
@@ -120,7 +159,9 @@ export default function App() {
       centerInRail(dockButtonsRef.current[activeCategoryId], behavior);
       centerInRail(mobileDockButtonsRef.current[activeCategoryId], behavior);
     };
-    const raf = window.requestAnimationFrame(() => syncDock('smooth'));
+    const raf = window.requestAnimationFrame(() =>
+      syncDock(prefersReducedMotion() ? 'auto' : 'smooth'),
+    );
     const onResize = () => syncDock('auto');
     window.addEventListener('resize', onResize);
     return () => {
@@ -163,7 +204,10 @@ export default function App() {
     setCameraAngle(item.prefersFrontView ? 'front' : 'top');
     setViewMode('table');
     setDrawerItem(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({
+      top: 0,
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    });
   }, []);
 
   const handleSetBeanForItem = useCallback((itemId: string, bean: BeanType) => {
@@ -176,7 +220,10 @@ export default function App() {
     setViewMode((prev) => {
       const next = prev === 'table' ? 'simple' : 'table';
       if (next === 'simple') {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({
+          top: 0,
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        });
       }
       return next;
     });
@@ -207,8 +254,14 @@ export default function App() {
         if (overviewMode) setOverviewMode(false);
         else if (cameraAngle === 'front') setCameraAngle('top');
       } else if (e.key === 'ArrowLeft' && !overviewMode) {
+        const now = Date.now();
+        if (now - lastKeyStepRef.current < 220) return;
+        lastKeyStepRef.current = now;
         handleStepItem(1);
       } else if (e.key === 'ArrowRight' && !overviewMode) {
+        const now = Date.now();
+        if (now - lastKeyStepRef.current < 220) return;
+        lastKeyStepRef.current = now;
         handleStepItem(-1);
       }
     };
@@ -244,11 +297,11 @@ export default function App() {
 
   return (
     <div
-      className="relative min-h-screen w-full overflow-x-hidden text-[#F8F5EE] transition-[background-color] duration-700 ease-out"
+      className="relative min-h-screen w-full overflow-x-hidden text-[#F8F5EE] transition-[background-color] duration-400 ease-out"
       style={{ backgroundColor: backdropHex }}
     >
       {/* Top Bar — 3-Zone Editorial Header (Official Eyvan Logo · Clean Links · Simple Menu / Rotary Table Toggle) */}
-      <header className="fixed inset-x-0 top-0 z-30 h-14 border-b border-[rgba(244,241,234,0.1)] bg-[#0D1423]/96 md:h-16 lg:bg-[#0D1423]/86 lg:backdrop-blur-md">
+      <header className="fixed inset-x-0 top-0 z-30 h-14 border-b border-[rgba(244,241,234,0.1)] bg-[#0D1423]/96 md:h-16 lg:bg-[#0D1423]/96">
         <div className="mx-auto flex h-full max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
           {/* Zone 1: Official Eyvan Brand Mark */}
           <button
@@ -340,16 +393,19 @@ export default function App() {
       </header>
 
       {/* Main Content: Either Rotary 3D Circular Table OR Classic Simple Menu */}
-      {viewMode === 'simple' ? (
+      <div key={viewMode} className="eyvan-view-enter">
+        {viewMode === 'simple' ? (
         <main>
-          <SimpleMenuView
-            selectedCategory={simpleCategoryId}
-            onSelectCategory={setSimpleCategoryId}
-            selectedBeans={selectedBeans}
-            onSelectItemDetails={(item) => setDrawerItem(item)}
-            onInspectOnTable={handleJumpToTableItem}
-            onOpenMobileCategories={() => setMobileCatsOpen(true)}
-          />
+          <Suspense fallback={null}>
+            <SimpleMenuView
+              selectedCategory={simpleCategoryId}
+              onSelectCategory={setSimpleCategoryId}
+              selectedBeans={selectedBeans}
+              onSelectItemDetails={(item) => setDrawerItem(item)}
+              onInspectOnTable={handleJumpToTableItem}
+              onOpenMobileCategories={() => setMobileCatsOpen(true)}
+            />
+          </Suspense>
         </main>
       ) : (
         <main className="relative h-[100dvh] min-h-[600px] w-full overflow-hidden">
@@ -447,7 +503,7 @@ export default function App() {
           {/* Layer 2: Right-Side Editorial Product Showcase (Desktop RTL Right / Mobile Lower Sheet) */}
           <section
             aria-label="جزئیات محصول انتخاب‌شده روی میز"
-            className={`pointer-events-none relative z-20 mx-auto flex h-full max-w-[1440px] flex-col justify-end px-3 pt-28 pb-3 transition-[opacity,transform] duration-500 ease-out sm:px-6 lg:flex-row lg:items-center lg:justify-start lg:px-12 lg:pt-16 lg:pb-16 ${
+            className={`eyvan-showcase-panel pointer-events-none relative z-20 mx-auto flex h-full max-w-[1440px] flex-col justify-end px-3 pt-28 pb-3 transition-[opacity,transform] duration-300 ease-out sm:px-6 lg:flex-row lg:items-center lg:justify-start lg:px-12 lg:pt-16 lg:pb-16 ${
               overviewMode
                 ? 'translate-y-4 opacity-0'
                 : 'translate-y-0 opacity-100'
@@ -757,7 +813,7 @@ export default function App() {
             aria-label="دسته‌بندی‌های منوی کافه و رستوران ایوان"
             className="pointer-events-none fixed inset-x-0 bottom-3 z-30 hidden justify-center px-3 lg:flex"
           >
-            <div className="pointer-events-auto flex h-[52px] w-auto max-w-[1180px] items-center gap-1.5 rounded-[14px] border border-[rgba(244,241,234,0.16)] bg-[#0D1423]/95 p-1.5 shadow-xl backdrop-blur-md">
+            <div className="pointer-events-auto flex h-[52px] w-auto max-w-[1180px] items-center gap-1.5 rounded-[14px] border border-[rgba(244,241,234,0.16)] bg-[#0D1423]/95 p-1.5 shadow-xl">
               <div className="eyvan-scroll-hidden flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
                 {MENU_CATEGORIES.map((category) => {
                   const isActive = category.id === activeCategoryId;
@@ -789,7 +845,8 @@ export default function App() {
             </div>
           </nav>
         </main>
-      )}
+        )}
+      </div>
 
       {/* Grounded Editorial Footer (Official Eyvan Logo, Hours, Location, Cashier Note & Instagram) */}
       <footer
@@ -862,43 +919,59 @@ export default function App() {
       </footer>
 
       {/* Drawers & Modals */}
-      <DrinkCustomizeDrawer
-        item={drawerItem}
-        categoryName={drawerCategoryName}
-        selectedBean={
-          drawerItem
-            ? (selectedBeans[drawerItem.id] ?? getDefaultBean(drawerItem))
-            : undefined
-        }
-        onBeanChange={(bean) => {
-          if (drawerItem) handleSetBeanForItem(drawerItem.id, bean);
-        }}
-        onClose={() => setDrawerItem(null)}
-      />
+      {drawerItem && (
+        <Suspense fallback={null}>
+          <DrinkCustomizeDrawer
+            item={drawerItem}
+            categoryName={drawerCategoryName}
+            selectedBean={
+              drawerItem
+                ? (selectedBeans[drawerItem.id] ?? getDefaultBean(drawerItem))
+                : undefined
+            }
+            onBeanChange={(bean) => {
+              if (drawerItem) handleSetBeanForItem(drawerItem.id, bean);
+            }}
+            onClose={() => setDrawerItem(null)}
+          />
+        </Suspense>
+      )}
 
-      <SearchOverlay
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSelectMenuItem={handleJumpToTableItem}
-      />
+      {searchOpen && (
+        <Suspense fallback={null}>
+          <SearchOverlay
+            open={searchOpen}
+            onClose={() => setSearchOpen(false)}
+            onSelectMenuItem={handleJumpToTableItem}
+          />
+        </Suspense>
+      )}
 
-      <MobileCategorySheet
-        open={mobileCatsOpen}
-        activeCategoryId={
-          viewMode === 'simple' ? simpleCategoryId : activeCategoryId
-        }
-        includeAllOption={viewMode === 'simple'}
-        onSelect={(catId) => {
-          if (viewMode === 'simple') {
-            setSimpleCategoryId(catId);
-          } else if (catId !== 'all') {
-            handleSelectCategory(catId);
-          }
-        }}
-        onClose={() => setMobileCatsOpen(false)}
-      />
+      {mobileCatsOpen && (
+        <Suspense fallback={null}>
+          <MobileCategorySheet
+            open={mobileCatsOpen}
+            activeCategoryId={
+              viewMode === 'simple' ? simpleCategoryId : activeCategoryId
+            }
+            includeAllOption={viewMode === 'simple'}
+            onSelect={(catId) => {
+              if (viewMode === 'simple') {
+                setSimpleCategoryId(catId);
+              } else if (catId !== 'all') {
+                handleSelectCategory(catId);
+              }
+            }}
+            onClose={() => setMobileCatsOpen(false)}
+          />
+        </Suspense>
+      )}
 
-      <CafeInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
+      {infoOpen && (
+        <Suspense fallback={null}>
+          <CafeInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

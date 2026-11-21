@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Thermometer, X } from 'lucide-react';
 import {
   BeanType,
@@ -33,6 +33,10 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
   const [milkTemp, setMilkTemp] = useState<'standard' | 'extra-hot'>(
     'standard',
   );
+  const [panelState, setPanelState] = useState<
+    'closed' | 'open' | 'closing'
+  >('closed');
+  const closeTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!item) return;
@@ -42,12 +46,27 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
 
   useEffect(() => {
     if (!item) return;
+    window.clearTimeout(closeTimerRef.current);
+    setPanelState('closed');
+    const raf = requestAnimationFrame(() => setPanelState('open'));
+    return () => cancelAnimationFrame(raf);
+  }, [item]);
+
+  useEffect(() => () => window.clearTimeout(closeTimerRef.current), []);
+
+  const handleClose = useCallback(() => {
+    setPanelState('closing');
+    closeTimerRef.current = window.setTimeout(onClose, 200);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!item) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [item, onClose]);
+  }, [item, handleClose]);
 
   if (!item) return null;
 
@@ -66,12 +85,16 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="customize-drawer-title"
-      className="fixed inset-0 z-50 flex justify-start bg-[#070B14]/65"
+      className="eyvan-overlay-backdrop fixed inset-0 z-50 flex justify-start bg-[#070B14]/65"
+      data-state={panelState === 'open' ? 'open' : 'closed'}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <aside className="eyvan-text-enter relative flex h-full w-full max-w-[460px] flex-col border-l border-[rgba(244,241,234,0.12)] bg-[#101829] shadow-2xl">
+      <aside
+        className="eyvan-overlay-panel eyvan-drawer-panel relative flex h-full w-full max-w-[460px] flex-col border-l border-[rgba(244,241,234,0.12)] bg-[#101829] shadow-2xl"
+        data-state={panelState === 'open' ? 'open' : 'closed'}
+      >
         {/* Drawer Header */}
         <div className="flex items-start justify-between gap-4 border-b border-[rgba(244,241,234,0.09)] px-6 py-4">
           <div>
@@ -88,7 +111,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="بستن جزئیات محصول"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[rgba(244,241,234,0.12)] bg-[#17233B] text-[#F8F5EE] transition-colors hover:border-[#D4B47C] hover:text-[#D4B47C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4B47C]"
           >
@@ -288,7 +311,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="mt-3.5 w-full rounded-[10px] border border-[rgba(212,180,124,0.42)] bg-[#17253F] px-4 py-2.5 text-sm font-medium text-[#F8F5EE] transition-colors hover:border-[#D4B47C] hover:bg-[#1F3152]"
           >
             بستن جزئیات

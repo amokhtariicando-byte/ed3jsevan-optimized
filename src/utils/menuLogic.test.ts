@@ -186,7 +186,6 @@ test('3D table projection locks front seat to exact coaster center with monotoni
   assert.ok(Math.abs(front.screenX - base.tableCenterX) < 0.01);
   assert.ok(front.screenY > base.tableCenterY);
   assert.ok(front.perspScale > 1);
-  assert.equal(front.blurPx, 0);
 
   // Symmetric flanking seats on left & right of marble rim
   assert.ok(Math.abs(sideLeft.screenY - sideRight.screenY) < 0.01);
@@ -196,9 +195,6 @@ test('3D table projection locks front seat to exact coaster center with monotoni
         (sideRight.screenX - base.tableCenterX),
     ) < 0.01,
   );
-  assert.ok(sideLeft.blurPx > 0.8 && sideLeft.blurPx < 2.2);
-  assert.ok(back.blurPx > sideLeft.blurPx && back.blurPx <= 4.3);
-
   // Strict painter's-order depth sorting: front > sides > back
   assert.ok(front.zIndex > sideLeft.zIndex);
   assert.ok(sideLeft.zIndex > back.zIndex);

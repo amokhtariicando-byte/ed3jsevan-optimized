@@ -14,6 +14,11 @@
   --eyvan-text-secondary: #C4CCD8;
   --eyvan-text-muted: #8B95A6;
   --eyvan-border: rgba(244, 241, 234, 0.11);
+
+  /* Motion tokens */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @layer base {
@@ -42,6 +47,20 @@
   select {
     font-family: inherit;
     letter-spacing: 0 !important;
+  }
+
+  /* Press feedback (AUDIT.md §3): subtle scale on :active, 160ms. The color
+     properties re-include what Tailwind's transition-colors provides, so hover
+     states keep working. */
+  button:not(.eyvan-stage-btn) {
+    transition:
+      transform 160ms var(--ease-out),
+      color 150ms ease,
+      background-color 150ms ease,
+      border-color 150ms ease;
+  }
+  button:not(.eyvan-stage-btn):active {
+    transform: scale(0.97);
   }
 }
 
@@ -84,20 +103,21 @@
   );
 }
 
-/* Subtle editorial fade-rise when switching active item */
-@keyframes eyvanTextIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .eyvan-card-img {
+    transform: scale(1.03);
   }
 }
 
+/* Subtle editorial fade when switching active item (opacity only, so rapid
+   stepping doesn't flicker) */
+@keyframes eyvanTextIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .eyvan-text-enter {
-  animation: eyvanTextIn 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: eyvanTextIn 200ms var(--ease-out) both;
 }
 
 /* Gentle organic hot steam wisps over hot beverages on the focal slot */
@@ -119,20 +139,61 @@
   animation: eyvanSteamFloat 3.4s ease-out infinite;
 }
 
-/* Eye-level front glass showcase rise when 3D camera tilts forward */
-@keyframes eyvanGlassRise {
-  from {
-    opacity: 0;
-    transform: translateY(28px) scale(0.92);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+/* Overlay motion system (plan 009) */
+.eyvan-overlay-backdrop {
+  transition: opacity 250ms ease-out;
+}
+.eyvan-overlay-backdrop[data-state='closed'] {
+  opacity: 0;
+}
+.eyvan-overlay-panel {
+  transition:
+    transform 300ms var(--ease-out),
+    opacity 300ms var(--ease-out);
+}
+.eyvan-overlay-panel[data-state='closed'] {
+  transition-duration: 200ms;
+  opacity: 0;
+}
+.eyvan-drawer-panel {
+  transition:
+    transform 300ms var(--ease-drawer),
+    opacity 300ms var(--ease-out);
+}
+.eyvan-drawer-panel[data-state='closed'] {
+  transform: translateX(100%);
+}
+.eyvan-sheet-panel[data-state='closed'] {
+  transform: translateY(100%);
+}
+.eyvan-modal-panel[data-state='closed'] {
+  transform: scale(0.95);
+}
+.eyvan-search-panel[data-state='closed'] {
+  transform: translateY(-12px);
 }
 
-.eyvan-glass-rise {
-  animation: eyvanGlassRise 640ms cubic-bezier(0.22, 1, 0.36, 1) both;
+/* View + grid transitions (plan 010) */
+@keyframes eyvanViewIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.eyvan-view-enter {
+  animation: eyvanViewIn 250ms var(--ease-out) both;
+}
+@keyframes eyvanCardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.eyvan-card-enter {
+  animation: eyvanCardIn 250ms var(--ease-out) both;
+}
+@keyframes eyvanTableSwap {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.eyvan-table-swap {
+  animation: eyvanTableSwap 250ms var(--ease-out) both;
 }
 
 /* Clean scrollbars */
@@ -160,12 +221,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .eyvan-text-enter,
-  .eyvan-steam-line,
-  .eyvan-glass-rise {
+  html {
+    scroll-behavior: auto;
+  }
+  .eyvan-steam-line {
     animation: none !important;
   }
-  .eyvan-rotary-motion {
+  .eyvan-showcase-panel {
+    transition-property: opacity !important;
+  }
+  .eyvan-plate-scale {
     transition-duration: 0.01ms !important;
   }
 }
