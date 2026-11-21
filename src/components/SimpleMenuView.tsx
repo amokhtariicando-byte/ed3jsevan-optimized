@@ -347,7 +347,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                             <button
                               type="button"
                               onClick={() => onSelectItemDetails(item)}
-                              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#E7E2D8] transition-colors hover:text-[#6B7043]"
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7043] transition-colors hover:text-[#4F5330]"
                             >
                               <SlidersHorizontal
                                 className="h-3.5 w-3.5 text-[#6B7043]"
