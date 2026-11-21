@@ -79,6 +79,84 @@ function prefersReducedMotion(): boolean {
   );
 }
 
+/**
+ * How long (ms) the outgoing text layer stays mounted after an item change.
+ * Must stay in sync with `.eyvan-crossfade-out` in index.css (250ms) plus a
+ * small margin, so the layer unmounts only after its fade has finished.
+ */
+const CROSSFADE_OUT_MS = 260;
+
+/**
+ * True crossfade for a single text spot (title, description, or price) when
+ * the active item changes: the previous text fades out with a slight
+ * downward drift while the new text fades in with a small rise, overlapping
+ * the wheel turn so the swap reads as one gesture.
+ *
+ * Rapid-step safe: only ONE outgoing layer ever exists — each new change
+ * replaces it with the latest previous text and restarts the unmount timer,
+ * so hammering next/prev can never stack stale or duplicated text. Content
+ * changes that don't change `itemKey` (e.g. the price updating on a bean
+ * switch) swap instantly with no crossfade. Under prefers-reduced-motion no
+ * outgoing layer is rendered at all (instant swap; the CSS animations are
+ * neutralized in index.css too).
+ *
+ * The outgoing layer is absolutely positioned over the incoming one and is
+ * aria-hidden + pointer-events-none, so it never affects layout, focus, or
+ * screen readers. Only ever wrap plain text — never interactive controls.
+ */
+function CrossfadeText({
+  itemKey,
+  children,
+}: {
+  itemKey: string;
+  children: React.ReactNode;
+}) {
+  const [outgoing, setOutgoing] = useState<{
+    key: string;
+    node: React.ReactNode;
+  } | null>(null);
+  const lastRef = useRef({ key: itemKey, node: children });
+
+  useEffect(() => {
+    const prev = lastRef.current;
+    // Always refresh the snapshot, even when the key didn't change, so a
+    // bean-switch price update is what the next crossfade fades out from.
+    lastRef.current = { key: itemKey, node: children };
+    if (prev.key === itemKey) return;
+    if (prefersReducedMotion()) {
+      setOutgoing(null);
+      return;
+    }
+    setOutgoing({ key: prev.key, node: prev.node });
+  }, [itemKey, children]);
+
+  useEffect(() => {
+    if (!outgoing) return;
+    const timer = window.setTimeout(
+      () => setOutgoing(null),
+      CROSSFADE_OUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [outgoing]);
+
+  return (
+    <div className="relative">
+      {outgoing && (
+        <div
+          key={outgoing.key}
+          aria-hidden="true"
+          className="eyvan-crossfade-out pointer-events-none absolute inset-0"
+        >
+          {outgoing.node}
+        </div>
+      )}
+      <div key={itemKey} className="eyvan-crossfade-in relative">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [activeCategoryId, setActiveCategoryId] =
@@ -616,10 +694,7 @@ export default function App() {
                   </div>
                 </div>
               ) : activeItem ? (
-                <div
-                  key={activeItem.id}
-                  className="eyvan-text-enter space-y-2.5 lg:space-y-4"
-                >
+                <div className="space-y-2.5 lg:space-y-4">
                   {/* Top Row: Category & Counter Metadata + Compact Mobile Quick Tools */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-[#6B7043]">
@@ -679,15 +754,19 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* High-Contrast Persian Title */}
-                  <h1 className="text-[24px] font-semibold leading-[1.2] text-[#2F321C] sm:text-3xl lg:text-[46px]">
-                    {activeItem.name}
-                  </h1>
+                  {/* High-Contrast Persian Title (crossfades with the wheel turn) */}
+                  <CrossfadeText itemKey={activeItem.id}>
+                    <h1 className="text-[24px] font-semibold leading-[1.2] text-[#2F321C] sm:text-3xl lg:text-[46px]">
+                      {activeItem.name}
+                    </h1>
+                  </CrossfadeText>
 
-                  {/* Bright, Scannable Tasting Description */}
-                  <p className="line-clamp-2 text-[13px] leading-5 text-[#57534E] lg:line-clamp-none lg:text-[15px] lg:leading-7">
-                    {activeItem.description}
-                  </p>
+                  {/* Bright, Scannable Tasting Description (crossfades with the wheel turn) */}
+                  <CrossfadeText itemKey={activeItem.id}>
+                    <p className="line-clamp-2 text-[13px] leading-5 text-[#57534E] lg:line-clamp-none lg:text-[15px] lg:leading-7">
+                      {activeItem.description}
+                    </p>
+                  </CrossfadeText>
 
                   {/* Live Bean Selector + Toman Price (No Trailing Zeros) */}
                   <div className="flex flex-wrap items-center justify-between gap-2.5 border-y border-[rgba(107,112,67,0.13)] py-2.5 lg:py-3">
@@ -695,9 +774,11 @@ export default function App() {
                       <span className="block text-[10.5px] text-[#78716C] lg:text-[11px]">
                         قیمت بدون صفر
                       </span>
-                      <div className="tabular-fa mt-0.5 text-[22px] font-semibold text-[#6B7043] lg:text-[28px]">
-                        {formatToman(activeUnitPrice)}
-                      </div>
+                      <CrossfadeText itemKey={activeItem.id}>
+                        <div className="tabular-fa mt-0.5 text-[22px] font-semibold text-[#6B7043] lg:text-[28px]">
+                          {formatToman(activeUnitPrice)}
+                        </div>
+                      </CrossfadeText>
                     </div>
 
                     {hasDualBean ? (

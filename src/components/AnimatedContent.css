@@ -1,0 +1,16 @@
+/* Styles for the AnimatedContent scroll-reveal wrapper.
+ * Kept in this file (not index.css) so the component is self-contained.
+ * The transition itself is driven by inline styles in AnimatedContent.tsx;
+ * this file only carries the reduced-motion safety net. */
+
+/* Reduced motion: content must NEVER stay hidden. The `!important` rules
+ * override the inline hidden state even if the component's JS state is
+ * stale (e.g. the user toggles the OS setting mid-session). */
+@media (prefers-reduced-motion: reduce) {
+  .animated-content {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    will-change: auto !important;
+  }
+}

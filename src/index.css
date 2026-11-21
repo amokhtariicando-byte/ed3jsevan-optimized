@@ -120,6 +120,27 @@
   animation: eyvanTextIn 200ms var(--ease-out) both;
 }
 
+/* True crossfade for the showcase item text (title, description, price):
+   the outgoing text fades out with a slight downward drift while the
+   incoming text fades in with a small rise, overlapping the wheel turn so
+   the swap reads as one gesture. The outgoing layer is unmounted by
+   CrossfadeText in App.tsx after 260ms — keep the out duration in sync. */
+@keyframes eyvanCrossfadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes eyvanCrossfadeOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(3px); }
+}
+
+.eyvan-crossfade-in {
+  animation: eyvanCrossfadeIn 300ms var(--ease-out) both;
+}
+.eyvan-crossfade-out {
+  animation: eyvanCrossfadeOut 250ms var(--ease-out) both;
+}
+
 /* Gentle organic hot steam wisps over hot beverages on the focal slot */
 @keyframes eyvanSteamFloat {
   0% {
@@ -267,6 +288,10 @@
   }
   .eyvan-showcase-panel {
     transition-property: opacity !important;
+  }
+  .eyvan-crossfade-in,
+  .eyvan-crossfade-out {
+    animation: none !important;
   }
   .eyvan-plate-scale {
     transition-duration: 0.01ms !important;

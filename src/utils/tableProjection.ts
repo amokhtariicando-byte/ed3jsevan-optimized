@@ -114,3 +114,69 @@ export function easeOutQuart(t: number): number {
   const clamped = Math.max(0, Math.min(1, t));
   return 1 - Math.pow(1 - clamped, 4);
 }
+
+/**
+ * Builds an easing function from a CSS cubic-bezier(x1, y1, x2, y2) curve.
+ * Solves x(t) = x with Newton-Raphson (bisection fallback) so the JS curve
+ * matches the CSS curve exactly. y1/y2 may exceed [0, 1] (overshoot), but
+ * x1/x2 must stay in [0, 1] for the curve to be a valid easing.
+ */
+function cubicBezierEasing(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): (t: number) => number {
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  const sampleX = (t: number): number => ((ax * t + bx) * t + cx) * t;
+  const sampleY = (t: number): number => ((ay * t + by) * t + cy) * t;
+  const sampleDerivativeX = (t: number): number =>
+    (3 * ax * t + 2 * bx) * t + cx;
+
+  function solveX(x: number): number {
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const err = sampleX(t) - x;
+      if (Math.abs(err) < 1e-6) return t;
+      const d = sampleDerivativeX(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= err / d;
+    }
+    let lo = 0;
+    let hi = 1;
+    t = x;
+    while (hi - lo > 1e-6) {
+      if (sampleX(t) > x) hi = t;
+      else lo = t;
+      t = (lo + hi) / 2;
+    }
+    return t;
+  }
+
+  return (t: number): number => {
+    const clamped = Math.max(0, Math.min(1, t));
+    if (clamped === 0 || clamped === 1) return clamped;
+    return sampleY(solveX(clamped));
+  };
+}
+
+/**
+ * Soft ease-out for turntable spins and drag settles — the same curve as the
+ * CSS `--ease-drawer` token (cubic-bezier(0.32, 0.72, 0, 1)), so wheel motion
+ * shares one timing family with the rest of the app. Compared with
+ * easeOutQuart it starts at roughly half the initial velocity (no lurch when
+ * the wheel leaves rest) and glides into the slot on a long soft tail, while
+ * still moving visibly from the first frame so rapid stepping stays
+ * responsive. The zero end-slope means the wheel lands without a hard stop.
+ */
+export const easeSoftOut: (t: number) => number = cubicBezierEasing(
+  0.32,
+  0.72,
+  0,
+  1,
+);

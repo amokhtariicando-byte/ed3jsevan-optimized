@@ -18,7 +18,7 @@ import {
 } from '../utils/menuLogic';
 import {
   easeInOutCubic,
-  easeOutQuart,
+  easeSoftOut,
   projectTableSeat,
 } from '../utils/tableProjection';
 import { EyvanLogo } from './EyvanLogo';
@@ -758,9 +758,14 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     const startTime = performance.now();
     const isCameraMove = Math.abs(target.pitch - start.pitch) > 1;
     const wheelDelta = Math.abs(nextWheelAngle - animRef.current.wheelAngle);
+    // Soft wheel turns (FIX 1): a single slot step takes ~420ms and a
+    // half-turn ~600ms, so the table glides instead of lurching. The 380ms
+    // floor only binds for tiny deltas (e.g. a drag released just short of
+    // a slot), where it reads as a gentle detent settle. Camera moves run
+    // the full 600ms so wheel + camera stay one coherent gesture.
     const durationMs = isCameraMove
-      ? 500
-      : Math.min(420, Math.max(260, 220 + wheelDelta * 1.1));
+      ? 600
+      : Math.min(600, Math.max(380, 360 + wheelDelta * 1.3));
 
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
@@ -768,8 +773,8 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - startTime) / durationMs);
-      const camEase = isCameraMove ? easeInOutCubic(t) : easeOutQuart(t);
-      const wheelEase = easeOutQuart(t);
+      const camEase = isCameraMove ? easeInOutCubic(t) : easeSoftOut(t);
+      const wheelEase = easeSoftOut(t);
 
       const current: AnimatedCameraState = {
         wheelAngle:
@@ -986,9 +991,10 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       return;
     }
 
-    // Already on the nearest item: local 300ms ease-out settle back to the
-    // exact slot angle. (Calling onSelectIndex(activeIndex) would NOT re-run
-    // the animation effect — React bails out on identical state.)
+    // Already on the nearest item: local 360ms soft ease-out settle back to
+    // the exact slot angle. (Calling onSelectIndex(activeIndex) would NOT
+    // re-run the animation effect — React bails out on identical state.)
+    // Reduced motion snaps instantly, like the main animation loop.
     const targetAngle = computeShortestWheelAngle(
       animRef.current.wheelAngle,
       activeIndex,
@@ -999,12 +1005,20 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
     }
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) {
+      animRef.current = { ...animRef.current, wheelAngle: targetAngle };
+      paintFrame(animRef.current);
+      return;
+    }
     const startAngle = animRef.current.wheelAngle;
     const settleStart = performance.now();
-    const settleDurationMs = 300;
+    const settleDurationMs = 360;
     const settleTick = (tickNow: number) => {
       const t = Math.min(1, (tickNow - settleStart) / settleDurationMs);
-      const eased = easeOutQuart(t);
+      const eased = easeSoftOut(t);
       const current: AnimatedCameraState = {
         ...animRef.current,
         wheelAngle: startAngle + (targetAngle - startAngle) * eased,
