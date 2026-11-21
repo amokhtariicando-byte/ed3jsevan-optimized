@@ -272,3 +272,129 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* --- VibeFarsi design tokens, mapped to the Eyvan light palette --- */
+/* VibeFarsi components take their colors ONLY from these variables. Values
+   follow the Eyvan palette (primary = olive, background = cream, card =
+   white, accent = gold). The existing --eyvan-* tokens above stay untouched. */
+:root {
+  color-scheme: light;
+
+  --background: #F8F7F2;
+  --foreground: #2F321C;
+  --card: #FFFFFF;
+  --card-foreground: #2F321C;
+  --popover: #FFFFFF;
+  --popover-foreground: #2F321C;
+  --primary: #6B7043;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E8EAD9;
+  --secondary-foreground: #2F321C;
+  --muted: #F2F1E9;
+  --muted-foreground: #78716C;
+  --accent: #E8EAD9;
+  --accent-foreground: #2F321C;
+  --destructive: #B3261E;
+  --success: #4F7A4F;
+  --warning: #B5945B;
+  --border: rgba(107, 112, 67, 0.14);
+  --input: rgba(107, 112, 67, 0.22);
+  --ring: #6B7043;
+  --brand: #B5945B;
+  --brand-foreground: #2F321C;
+
+  --radius: 0.625rem;
+  --type-display-weight: 700;
+  --type-display: "Vazirmatn", system-ui, sans-serif;
+  --type-body: "Vazirmatn", system-ui, sans-serif;
+  --shape-control: calc(var(--radius) - 2px);
+  --shape-field: calc(var(--radius) - 2px);
+  --shape-surface: calc(var(--radius) + 12px);
+  --shape-overlay: calc(var(--radius) + 4px);
+  --line: 1px;
+  --line-field: 1px;
+  --line-style: solid;
+  --field: #FFFFFF;
+  --depth-control: 0 1px 2px rgba(47, 50, 28, 0.06);
+  --depth-press: 0 0 #0000;
+  --depth-field: 0 0 #0000;
+  --depth-surface: 0 1px 2px rgba(47, 50, 28, 0.06);
+  --depth-overlay: 0 20px 50px -20px rgba(47, 50, 28, 0.35);
+  --surface-filter: none;
+  --press: scale(0.98);
+  --motion: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --backdrop: none;
+  --spacing: 0.25rem;
+}
+
+/* --- vibefarsi:tailwind-map (Eyvan values) --- */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --radius-control: var(--shape-control);
+  --radius-field: var(--shape-field);
+  --radius-surface: var(--shape-surface);
+  --radius-overlay: var(--shape-overlay);
+  --border-width-line: var(--line);
+  --border-width-line-field: var(--line-field);
+  --color-field: var(--field);
+  --shadow-control: var(--depth-control);
+  --shadow-press: var(--depth-press);
+  --shadow-field: var(--depth-field);
+  --shadow-surface: var(--depth-surface);
+  --shadow-overlay: var(--depth-overlay);
+  --ease-motion: var(--motion-ease);
+  --font-display: var(--type-display);
+  --font-sans: "Vazirmatn", system-ui, -apple-system, sans-serif;
+}
+
+/* VibeFarsi entrance/loading animations used by the vendored components. */
+@theme {
+  --animate-fade-up: vibefarsi-fade-up 200ms cubic-bezier(0.2, 0, 0, 1) both;
+  --animate-slide-in: vibefarsi-slide-in 200ms cubic-bezier(0.2, 0, 0, 1) both;
+  --animate-pulse-soft: vibefarsi-pulse-soft 1.6s ease-in-out infinite;
+  --animate-shine: vibefarsi-shine 1.4s ease-in-out infinite;
+
+  @keyframes vibefarsi-fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes vibefarsi-slide-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes vibefarsi-pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  @keyframes vibefarsi-shine {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+  }
+}

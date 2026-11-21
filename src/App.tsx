@@ -66,6 +66,9 @@ const MobileCategorySheet = lazy(() =>
     default: m.MobileCategorySheet,
   })),
 );
+const AdminApp = lazy(() =>
+  import('./admin/AdminApp').then((m) => ({ default: m.AdminApp })),
+);
 
 type ViewMode = 'table' | 'simple';
 
@@ -105,6 +108,20 @@ export default function App() {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
+  }, []);
+  // Admin panel: `#/admin` (and any `#/admin/...` route) renders the admin
+  // app instead of the customer menu. The admin bundle stays lazy-loaded.
+  const [isAdmin, setIsAdmin] = useState<boolean>(
+    () =>
+      typeof window !== 'undefined' &&
+      window.location.hash.startsWith('#/admin'),
+  );
+  useEffect(() => {
+    const onHashChange = () => {
+      setIsAdmin(window.location.hash.startsWith('#/admin'));
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
   const [selectedBeans, setSelectedBeans] = useState<
     Record<string, BeanType | undefined>
@@ -311,6 +328,14 @@ export default function App() {
       activeCategory.name
     );
   }, [drawerItem, activeCategory.name]);
+
+  if (isAdmin) {
+    return (
+      <Suspense fallback={<SplashScreen compact />}>
+        <AdminApp />
+      </Suspense>
+    );
+  }
 
   return (
     <div
