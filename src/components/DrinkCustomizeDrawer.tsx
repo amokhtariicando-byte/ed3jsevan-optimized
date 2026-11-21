@@ -13,6 +13,7 @@ import {
   getSyrupById,
   toPersianDigits,
 } from '../utils/menuLogic';
+import { FadeInImage } from './FadeInImage';
 
 interface DrinkCustomizeDrawerProps {
   item: MenuItem | null;
@@ -123,7 +124,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
         <div className="eyvan-scroll flex-1 space-y-5 overflow-y-auto px-6 py-5">
           {/* Eye-Level Front Glass Studio Photograph */}
           <div className="overflow-hidden rounded-[14px] border border-[rgba(107,112,67,0.1)] bg-[#FFFFFF]">
-            <img
+            <FadeInImage
               src={item.frontImage}
               alt={item.name}
               decoding="async"

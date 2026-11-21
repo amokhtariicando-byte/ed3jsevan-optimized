@@ -1,0 +1,44 @@
+# Eyvan menu — production .htaccess (GitHub Pages ignores this file)
+# Requires mod_expires + mod_headers (standard on cPanel Apache/LiteSpeed).
+
+# 1. HTTPS redirect (only after AutoSSL/Let's Encrypt is live)
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} off
+  RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# 2. Compression (no-op on LiteSpeed, which compresses at server level;
+#    active on Apache when mod_deflate/mod_brotli are compiled in)
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml
+</IfModule>
+<IfModule mod_brotli.c>
+  AddOutputFilterByType BROTLI_COMPRESS text/html text/css text/javascript application/javascript application/json image/svg+xml
+</IfModule>
+
+# 3. Cache headers
+<IfModule mod_headers.c>
+  # Hashed build output: safe to cache forever (filename changes on every build)
+  <FilesMatch "\.(js|css|woff2)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  # Images: filenames are NOT content-hashed (see audit §1.2), so long cache
+  # but NOT immutable — a replaced photo must become visible within the TTL.
+  # (Once the PHP backend gives uploads unique/hashed filenames, this can
+  # become immutable too.)
+  <FilesMatch "\.(webp|jpg|jpeg|png|svg|ico)$">
+    Header set Cache-Control "public, max-age=604800, must-revalidate"
+  </FilesMatch>
+  # Entry point: always revalidate so deploys take effect immediately
+  <FilesMatch "^(index\.html)?$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  # API: never cache (menu data, auth, admin)
+  <FilesMatch "\.php$">
+    Header set Cache-Control "no-store"
+  </FilesMatch>
+  Header set X-Content-Type-Options "nosniff"
+  # HSTS — enable only after confirming HTTPS works end-to-end:
+  # Header set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+</IfModule>

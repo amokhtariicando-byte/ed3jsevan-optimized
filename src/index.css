@@ -261,13 +261,13 @@
 
 .eyvan-draw-arch {
   stroke-dasharray: 420;
-  animation: eyvanDrawArch 1.1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: eyvanDrawArch 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 .eyvan-splash-steam {
   animation: eyvanFloatSteam 2.4s ease-in-out infinite;
 }
 .eyvan-fade-up {
-  animation: eyvanFadeUpIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: eyvanFadeUpIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .eyvan-soft-pulse {
   animation: eyvanSoftPulse 2s ease-in-out infinite;

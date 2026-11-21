@@ -173,7 +173,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#F8F7F2] transition-all duration-700 ease-out ${
+      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#F8F7F2] transition-all duration-400 ease-out ${
         leaving ? 'pointer-events-none scale-105 opacity-0' : ''
       }`}
       role="status"
@@ -187,7 +187,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
         </div>
         <div
           className="eyvan-fade-up mt-4 flex items-center gap-2 text-xs tracking-widest text-[#6B7043]/80 uppercase"
-          style={{ animationDelay: '0.25s' }}
+          style={{ animationDelay: '0.15s' }}
         >
           <span className="h-[1px] w-5 bg-current opacity-50" />
           <span>EYVAN CAFE &amp; RESTAURANT</span>

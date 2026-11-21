@@ -22,6 +22,7 @@ import {
   projectTableSeat,
 } from '../utils/tableProjection';
 import { EyvanLogo } from './EyvanLogo';
+import { FadeInImage } from './FadeInImage';
 
 export type CameraAngle = 'top' | 'front';
 
@@ -1246,7 +1247,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                         )}
 
                         {!isBroken ? (
-                          <img
+                          <FadeInImage
                             src={item.image}
                             alt={item.name}
                             decoding="async"
@@ -1258,7 +1259,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                                 [item.id]: true,
                               }))
                             }
-                            className="eyvan-plate-img h-full w-full rounded-full object-cover pointer-events-none"
+                            className="eyvan-plate-img pointer-events-none h-full w-full rounded-full object-cover"
                             style={{
                               transform: `rotate(${item.plateAngle ?? 0}deg)`,
                             }}
@@ -1417,13 +1418,13 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                     transformOrigin: isCup ? '45.5% 100%' : '50% 100%',
                   }}
                 >
-                  <img
+                  <FadeInImage
                     src={item.cutoutImage}
                     alt={`نمای روبه‌رو ${item.name}`}
                     decoding="async"
                     referrerPolicy="no-referrer"
                     draggable={false}
-                    className="block h-full w-auto max-w-none select-none object-contain pointer-events-none"
+                    className="pointer-events-none block h-full w-auto max-w-none object-contain select-none"
                     style={{
                       filter: cachedImgFilter,
                     }}

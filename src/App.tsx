@@ -102,6 +102,18 @@ function scrollToTopInstant(): void {
 const CROSSFADE_OUT_MS = 260;
 
 /**
+ * Splash gate timings (P0-1). The splash used to hold 950ms + fade 700ms
+ * (1,650ms fixed), hiding content that was already rendered underneath.
+ * The 500ms hold lets the 500ms arch draw finish exactly as the fade
+ * starts, so the splash still looks complete, not truncated; the 400ms
+ * fade keeps the exit soft. Total ~900ms. SPLASH_FADE_MS must stay in sync
+ * with the `duration-400` on the splash root in SplashScreen.tsx, and
+ * SPLASH_HOLD_MS with the `.eyvan-draw-arch` duration in index.css.
+ */
+const SPLASH_HOLD_MS = 500;
+const SPLASH_FADE_MS = 400;
+
+/**
  * True crossfade for a single text spot (title, description, or price) when
  * the active item changes: the previous text fades out with a slight
  * downward drift while the new text fades in with a small rise, overlapping
@@ -186,7 +198,12 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
   const [infoOpen, setInfoOpen] = useState<boolean>(false);
   const [mobileCatsOpen, setMobileCatsOpen] = useState<boolean>(false);
-  const [splash, setSplash] = useState<'show' | 'leaving' | 'gone'>('show');
+  const [splash, setSplash] = useState<'show' | 'leaving' | 'gone'>(
+    // Reduced motion skips the splash from the very first render — deciding
+    // here (not in a useEffect) means reduced-motion users never see even a
+    // 1-frame splash flash.
+    () => (prefersReducedMotion() ? 'gone' : 'show'),
+  );
   // Explicit view-switch loading flag. The simple menu's chunk is lazy, and
   // the Suspense fallback alone cannot cover the load gap: it renders
   // inside the `.eyvan-view-enter` div, whose opacity animation (0→1) makes
@@ -198,15 +215,16 @@ export default function App() {
   // only when the new view reports it has mounted.
   const [viewLoading, setViewLoading] = useState<boolean>(false);
 
-  // Splash screen: show the arch logo for 950ms, then fade out over 700ms
-  // (same timing as the reference page). Reduced motion skips it entirely.
+  // Splash screen: show the arch logo for SPLASH_HOLD_MS, then fade out
+  // over SPLASH_FADE_MS. Reduced motion is already 'gone' via the initial
+  // state above, so no timers run for those users.
   useEffect(() => {
-    if (prefersReducedMotion()) {
-      setSplash('gone');
-      return;
-    }
-    const t1 = window.setTimeout(() => setSplash('leaving'), 950);
-    const t2 = window.setTimeout(() => setSplash('gone'), 1650);
+    if (prefersReducedMotion()) return;
+    const t1 = window.setTimeout(() => setSplash('leaving'), SPLASH_HOLD_MS);
+    const t2 = window.setTimeout(
+      () => setSplash('gone'),
+      SPLASH_HOLD_MS + SPLASH_FADE_MS,
+    );
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);

@@ -21,6 +21,7 @@ import {
   toPersianDigits,
 } from '../utils/menuLogic';
 import { AnimatedContent } from './AnimatedContent';
+import { FadeInImage } from './FadeInImage';
 import { InstagramIcon } from './InstagramIcon';
 
 interface SimpleMenuViewProps {
@@ -299,13 +300,22 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                                 aria-label={`مشاهده جزئیات ${item.name}`}
                                 className="h-24 w-24 shrink-0 overflow-hidden rounded-[10px] border border-[rgba(107,112,67,0.08)] bg-[#F8F7F2] sm:h-28 sm:w-28"
                               >
-                                <img
+                                <FadeInImage
                                   src={item.frontImage}
                                   alt={item.name}
                                   loading="lazy"
                                   decoding="async"
                                   referrerPolicy="no-referrer"
-                                  className="h-full w-full object-cover transition-transform duration-250 eyvan-card-img"
+                                  className="eyvan-card-img h-full w-full object-cover"
+                                  style={{
+                                    // The thumb also scales on hover (see
+                                    // .eyvan-card-img in index.css), so the
+                                    // fade transition must carry the
+                                    // transform transition too — one
+                                    // `transition` property covers both.
+                                    transition:
+                                      'opacity 200ms ease-out, transform 250ms cubic-bezier(0.4, 0, 0.2, 1)',
+                                  }}
                                 />
                               </button>
 
