@@ -116,6 +116,10 @@ const IMG = {
   persianCold: 'src/assets/images/topdown_persian_cold_1795167621048.webp',
   milkshake: 'src/assets/images/topdown_milkshake_1795167621330.webp',
   mocktail: 'src/assets/images/topdown_mocktail_1795167622682.webp',
+  mojitoFlow: 'src/assets/images/topdown_mojito_flow.webp',
+  brazilianLemonadeFlow: 'src/assets/images/topdown_brazilian_lemonade_flow.webp',
+  rokatoFlow: 'src/assets/images/topdown_rokato_flow.webp',
+  chocoShakeFlow: 'src/assets/images/topdown_chocolate_milkshake_flow.webp',
 } as const;
 
 const FRONT_IMG = {
@@ -137,6 +141,10 @@ const FRONT_IMG = {
   berryShake: 'src/assets/images/eyvan_berry_tropical_shake_1795166291573.webp',
   redMocktail: 'src/assets/images/eyvan_red_mocktail_1795166292393.webp',
   greenMocktail: 'src/assets/images/eyvan_green_mojito_mocktail_1795166292338.webp',
+  mojitoFlow: 'src/assets/images/eyvan_mojito_flow.webp',
+  brazilianLemonadeFlow: 'src/assets/images/eyvan_brazilian_lemonade_flow.webp',
+  rokatoFlow: 'src/assets/images/eyvan_rokato_flow.webp',
+  chocoShakeFlow: 'src/assets/images/eyvan_chocolate_milkshake_flow.webp',
 } as const;
 
 const CUTOUT_IMG = {
@@ -154,6 +162,10 @@ const CUTOUT_IMG = {
   hotEspresso: 'src/assets/images/cutouts/hot_espresso.webp',
   hotMocha: 'src/assets/images/cutouts/hot_mocha.webp',
   persianTea: 'src/assets/images/cutouts/persian_tea.webp',
+  mojitoFlow: 'src/assets/images/cutouts/mojito_flow.webp',
+  brazilianLemonadeFlow: 'src/assets/images/cutouts/brazilian_lemonade_flow.webp',
+  rokatoFlow: 'src/assets/images/cutouts/rokato_flow.webp',
+  chocoShakeFlow: 'src/assets/images/cutouts/chocolate_milkshake_flow.webp',
 } as const;
 
 const FRONT_TO_CUTOUT: Record<string, string> = {
@@ -175,6 +187,10 @@ const FRONT_TO_CUTOUT: Record<string, string> = {
   [FRONT_IMG.berryShake]: CUTOUT_IMG.berryShake,
   [FRONT_IMG.redMocktail]: CUTOUT_IMG.redMocktail,
   [FRONT_IMG.greenMocktail]: CUTOUT_IMG.greenMojito,
+  [FRONT_IMG.mojitoFlow]: CUTOUT_IMG.mojitoFlow,
+  [FRONT_IMG.brazilianLemonadeFlow]: CUTOUT_IMG.brazilianLemonadeFlow,
+  [FRONT_IMG.rokatoFlow]: CUTOUT_IMG.rokatoFlow,
+  [FRONT_IMG.chocoShakeFlow]: CUTOUT_IMG.chocoShakeFlow,
 };
 
 export const MENU_CATEGORIES: MenuCategory[] = [
@@ -1059,8 +1075,8 @@ const RAW_MENU_ITEMS: RawMenuItem[] = [
     description:
       'شیک غلیظ بستنی شکلاتی و سس کاکائوی تلخ با بافتی خامه‌ای و یکدست.',
     price: 335,
-    image: IMG.milkshake,
-    frontImage: FRONT_IMG.chocoShake,
+    image: IMG.chocoShakeFlow,
+    frontImage: FRONT_IMG.chocoShakeFlow,
     prefersFrontView: true,
     plateAngle: 0,
     backdropTone: 'bronze',
@@ -1181,8 +1197,8 @@ const RAW_MENU_ITEMS: RawMenuItem[] = [
     description:
       'لیموناد کرمی و خنک با لایم تازه و بافت مخملی سبک.',
     price: 295,
-    image: IMG.persianCold,
-    frontImage: FRONT_IMG.greenMocktail,
+    image: IMG.brazilianLemonadeFlow,
+    frontImage: FRONT_IMG.brazilianLemonadeFlow,
     prefersFrontView: true,
     plateAngle: 64,
     backdropTone: 'olive',
@@ -1194,8 +1210,8 @@ const RAW_MENU_ITEMS: RawMenuItem[] = [
     description:
       'برگ‌های نعنای تازه، لایم برش‌خورده و سودای خنک روی یخ فراوان.',
     price: 295,
-    image: IMG.persianCold,
-    frontImage: FRONT_IMG.greenMocktail,
+    image: IMG.mojitoFlow,
+    frontImage: FRONT_IMG.mojitoFlow,
     prefersFrontView: true,
     plateAngle: 22,
     backdropTone: 'olive',
@@ -1221,8 +1237,8 @@ const RAW_MENU_ITEMS: RawMenuItem[] = [
       'ماکتل امضادار بار سرد ایوان با توازن طعمی میوه‌ای، خنک و گازدار.',
     price: 310,
     highlight: 'ویژه بار سرد',
-    image: IMG.mocktail,
-    frontImage: FRONT_IMG.redMocktail,
+    image: IMG.rokatoFlow,
+    frontImage: FRONT_IMG.rokatoFlow,
     prefersFrontView: true,
     plateAngle: -36,
     backdropTone: 'navy',
