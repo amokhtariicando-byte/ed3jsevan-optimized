@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   Disc,
   LayoutGrid,
@@ -30,6 +30,9 @@ interface SimpleMenuViewProps {
   onSelectItemDetails: (item: MenuItem) => void;
   onInspectOnTable: (item: MenuItem) => void;
   onOpenMobileCategories: () => void;
+  // Called once when the menu mounts, so App can lift the state-driven
+  // view-switch loading overlay exactly when the menu is ready to paint.
+  onReady?: () => void;
 }
 
 export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
@@ -39,6 +42,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
   onSelectItemDetails,
   onInspectOnTable,
   onOpenMobileCategories,
+  onReady,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -53,6 +57,13 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
+
+  // Tell App the menu has mounted so the state-driven loading overlay can
+  // lift. The overlay covers the whole lazy-chunk load gap; without this
+  // callback it would stay up until the safety timeout.
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
 
   const sections = useMemo(
     () =>

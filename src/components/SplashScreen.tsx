@@ -155,9 +155,12 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
   compact = false,
 }) => {
   if (compact) {
+    // Fully opaque on purpose: a translucent overlay lets the collapsed
+    // page (header + footer) ghost through during a view switch, while the
+    // lazy chunk is still loading.
     return (
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F8F7F2]/90"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F8F7F2]"
         role="status"
         aria-label="در حال بارگذاری"
       >

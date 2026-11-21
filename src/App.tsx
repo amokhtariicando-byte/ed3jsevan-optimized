@@ -187,6 +187,16 @@ export default function App() {
   const [infoOpen, setInfoOpen] = useState<boolean>(false);
   const [mobileCatsOpen, setMobileCatsOpen] = useState<boolean>(false);
   const [splash, setSplash] = useState<'show' | 'leaving' | 'gone'>('show');
+  // Explicit view-switch loading flag. The simple menu's chunk is lazy, and
+  // the Suspense fallback alone cannot cover the load gap: it renders
+  // inside the `.eyvan-view-enter` div, whose opacity animation (0→1) makes
+  // it the containing block for the fixed fallback, so the fallback is
+  // positioned relative to the ~0-height view div and effectively
+  // invisible — the collapsed page (header + footer) shows crisply for ~1s
+  // on a slow mobile connection. The overlay below renders at App root
+  // level instead, is set synchronously in the switch handler, and lifts
+  // only when the new view reports it has mounted.
+  const [viewLoading, setViewLoading] = useState<boolean>(false);
 
   // Splash screen: show the arch logo for 950ms, then fade out over 700ms
   // (same timing as the reference page). Reduced motion skips it entirely.
@@ -202,6 +212,45 @@ export default function App() {
       window.clearTimeout(t2);
     };
   }, []);
+  // Preload the simple-menu chunk when the browser is idle after first
+  // paint, so switching to «منوی ساده» is instant on repeat visits. Only
+  // this chunk — never the admin chunk. The cast keeps TypeScript from
+  // narrowing `window` to `never` in the fallback branch: lib.dom declares
+  // requestIdleCallback as always present, but Safari doesn't implement it.
+  useEffect(() => {
+    const preload = () => {
+      import('./components/SimpleMenuView').catch(() => {
+        // A failed preload is simply retried when the user switches views.
+      });
+    };
+    const idle = window as unknown as {
+      requestIdleCallback?: (
+        cb: () => void,
+        opts?: { timeout?: number },
+      ) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idle.requestIdleCallback === 'function') {
+      const handle = idle.requestIdleCallback(preload, { timeout: 3000 });
+      return () => idle.cancelIdleCallback?.(handle);
+    }
+    const timer = window.setTimeout(preload, 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
+  // Safety net for the view-loading overlay: never leave it up forever if
+  // the chunk import hangs (it normally resolves in well under a second),
+  // and lift it immediately if the view flips back to the table before the
+  // menu mounts (only reachable by keyboard while the overlay is up — the
+  // overlay itself blocks pointer taps).
+  useEffect(() => {
+    if (!viewLoading) return;
+    if (viewMode === 'table') {
+      setViewLoading(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setViewLoading(false), 10000);
+    return () => window.clearTimeout(timer);
+  }, [viewMode, viewLoading]);
   // Admin panel: `#/admin` (and any `#/admin/...` route) renders the admin
   // app instead of the customer menu. The admin bundle stays lazy-loaded.
   const [isAdmin, setIsAdmin] = useState<boolean>(
@@ -342,6 +391,12 @@ export default function App() {
     setSelectedBeans((prev) => ({ ...prev, [itemId]: bean }));
   }, []);
 
+  // SimpleMenuView calls this once it has mounted, so the state-driven
+  // loading overlay lifts exactly when the menu is ready to paint.
+  const handleSimpleMenuReady = useCallback(() => {
+    setViewLoading(false);
+  }, []);
+
   const handleToggleViewMode = useCallback(() => {
     // Jump to the top synchronously BEFORE the view swaps, in BOTH
     // directions (see scrollToTopInstant). The old code scrolled smoothly
@@ -353,8 +408,17 @@ export default function App() {
     scrollToTopInstant();
     setOverviewMode(false);
     setDrawerItem(null);
+    if (viewMode === 'table') {
+      // Switching TO the simple menu: its chunk is lazy, so engage the
+      // loading overlay synchronously BEFORE the swap. The overlay renders
+      // at App root level (outside the animating view div) and lifts when
+      // SimpleMenuView reports it has mounted. The table view is
+      // synchronous (direct import, no Suspense), so no overlay is needed
+      // going back.
+      setViewLoading(true);
+    }
     setViewMode((prev) => (prev === 'table' ? 'simple' : 'table'));
-  }, []);
+  }, [viewMode]);
 
   // Keyboard navigation in Rotary Table mode
   useEffect(() => {
@@ -436,6 +500,13 @@ export default function App() {
       style={{ backgroundColor: backdropHex }}
     >
       {splash !== 'gone' && <SplashScreen leaving={splash === 'leaving'} />}
+      {/* View-switch loading overlay: rendered at App root level, OUTSIDE
+      the `.eyvan-view-enter` div — an ancestor with opacity < 1 becomes the
+      containing block for this fixed overlay and breaks its positioning
+      (that is exactly why the old in-view Suspense fallback let the footer
+      show through for ~1s). Fully opaque; lifts when the new view reports
+      it has mounted. */}
+      {viewLoading && <SplashScreen compact />}
       {/* Top Bar — 3-Zone Editorial Header (Official Eyvan Logo · Clean Links · Simple Menu / Rotary Table Toggle) */}
       <header className="fixed inset-x-0 top-0 z-30 h-14 border-b border-[rgba(107,112,67,0.1)] bg-[#FFFFFF]/96 md:h-16 lg:bg-[#FFFFFF]/96">
         <div className="mx-auto flex h-full max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
@@ -532,7 +603,11 @@ export default function App() {
       {/* Main Content: Either Rotary 3D Circular Table OR Classic Simple Menu */}
       <div key={viewMode} className="eyvan-view-enter">
         {viewMode === 'simple' ? (
-        <main>
+        // min-h belt and braces: while the lazy chunk loads, the Suspense
+        // fallback takes no layout space, so without this the footer jumps
+        // up under the header. The min-height keeps it below the fold even
+        // if the overlay is ever absent.
+        <main className="min-h-[100dvh]">
           <Suspense fallback={<SplashScreen compact />}>
             <SimpleMenuView
               selectedCategory={simpleCategoryId}
@@ -541,6 +616,7 @@ export default function App() {
               onSelectItemDetails={(item) => setDrawerItem(item)}
               onInspectOnTable={handleJumpToTableItem}
               onOpenMobileCategories={() => setMobileCatsOpen(true)}
+              onReady={handleSimpleMenuReady}
             />
           </Suspense>
         </main>
