@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useState } from 'react';
 import {
   Disc,
   LayoutGrid,
@@ -41,6 +41,18 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
   onOpenMobileCategories,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Safety net for the view-switch scroll flash: when this very tall view
+  // mounts (after its lazy chunk loads), the browser's scroll anchoring can
+  // drag the viewport toward the end of the page before the first paint.
+  // useLayoutEffect runs synchronously after the DOM updates but before
+  // paint, so the first frame is always the top of the menu. 'instant' is
+  // required: index.css sets `scroll-behavior: smooth` on <html>, so 'auto'
+  // would still animate. Mount-only: switching categories inside the menu
+  // keeps the user's scroll position, as before.
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
 
   const sections = useMemo(
     () =>

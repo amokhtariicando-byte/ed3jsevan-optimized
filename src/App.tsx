@@ -80,6 +80,21 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
+ * Jump to the top of the page synchronously, with no animation.
+ * `behavior: 'instant'` (not 'auto') is required: index.css sets
+ * `scroll-behavior: smooth` on <html>, so 'auto' would still animate.
+ * Call BEFORE switching views — a smooth scroll started at the switch races
+ * the content swap and the browser's scroll anchoring: the table page is
+ * short (100dvh + footer) and the simple menu is very tall, so when the tall
+ * menu mounts, anchoring tries to keep the visible footer in place and drags
+ * the viewport to the end of the page for a moment. Instant is also the
+ * reduced-motion-friendly choice (no animation at all).
+ */
+function scrollToTopInstant(): void {
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+/**
  * How long (ms) the outgoing text layer stays mounted after an item change.
  * Must stay in sync with `.eyvan-crossfade-out` in index.css (250ms) plus a
  * small margin, so the layer unmounts only after its fade has finished.
@@ -310,16 +325,17 @@ export default function App() {
       0,
       itemsInCat.findIndex((i) => i.id === item.id),
     );
+    // Jump to the top BEFORE the view swaps (see scrollToTopInstant): the
+    // user may be deep in the long simple menu, and the table page is short,
+    // so without this the browser clamps the scroll to the bottom of the
+    // table page and the footer flashes first.
+    scrollToTopInstant();
     setActiveCategoryId(item.categoryId);
     setActiveItemIndex(idx);
     setOverviewMode(false);
     setCameraAngle(item.prefersFrontView ? 'front' : 'top');
     setViewMode('table');
     setDrawerItem(null);
-    window.scrollTo({
-      top: 0,
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    });
   }, []);
 
   const handleSetBeanForItem = useCallback((itemId: string, bean: BeanType) => {
@@ -327,18 +343,17 @@ export default function App() {
   }, []);
 
   const handleToggleViewMode = useCallback(() => {
+    // Jump to the top synchronously BEFORE the view swaps, in BOTH
+    // directions (see scrollToTopInstant). The old code scrolled smoothly
+    // from inside the setViewMode updater — a side effect in an updater,
+    // which must stay pure — and only when switching TO the simple menu, so
+    // switching back to the table landed at the clamped bottom of the short
+    // table page. The smooth scroll also raced the lazy-chunk mount and the
+    // browser's scroll anchoring, flashing the end of the long menu.
+    scrollToTopInstant();
     setOverviewMode(false);
     setDrawerItem(null);
-    setViewMode((prev) => {
-      const next = prev === 'table' ? 'simple' : 'table';
-      if (next === 'simple') {
-        window.scrollTo({
-          top: 0,
-          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-        });
-      }
-      return next;
-    });
+    setViewMode((prev) => (prev === 'table' ? 'simple' : 'table'));
   }, []);
 
   // Keyboard navigation in Rotary Table mode
@@ -428,6 +443,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              scrollToTopInstant();
               setViewMode('table');
               setOverviewMode(false);
               setCameraAngle('top');
