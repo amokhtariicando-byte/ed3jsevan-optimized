@@ -41,7 +41,7 @@ export function BulkPricesView() {
   const [scope, setScope] = useState('all');
   const [mode, setMode] = useState<PriceMode>('percent');
   const [direction, setDirection] = useState<Direction>('up');
-  const [amount, setAmount] = useState<number | undefined>(undefined);
+  const [amount, setAmount] = useState<number | undefined>(10);
   const [applying, setApplying] = useState(false);
 
   const load = useCallback(async () => {

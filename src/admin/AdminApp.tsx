@@ -406,7 +406,9 @@ function AdminShell() {
                 >
                   {publishState.hasDraft
                     ? 'پیش‌نویس منتشرنشده'
-                    : 'منتشر شده'}
+                    : publishState.lastPublishedAt
+                      ? 'منتشر شده'
+                      : 'بدون تغییر'}
                 </Badge>
               )}
               {publishState?.lastPublishedAt && (
