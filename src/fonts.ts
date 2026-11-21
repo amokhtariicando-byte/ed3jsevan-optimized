@@ -12,8 +12,8 @@
 // Vite emits the font files with content hashes, so a static
 // `<link rel="preload">` in index.html cannot reference them — the preload
 // links and the @font-face rules are injected here, from the build-resolved
-// URLs, at entry time. Import this module FIRST in main.tsx so the preloads
-// fire before React renders.
+// URLs, at entry time. Import this module at the top of main.tsx (with
+// preload.ts) so the preloads fire before React renders.
 //
 // font-family stays "Vazirmatn" and the unicode-ranges are copied verbatim
 // from the fontsource CSS (identical across weights), so all existing CSS
@@ -57,10 +57,48 @@ for (const url of [arabic400Url, arabic600Url]) {
   document.head.appendChild(link);
 }
 
+// Fallback face (font-swap reflow): while Vazirmatn downloads, Persian text
+// renders in the device's system Arabic font. Two measured mismatches made
+// the swap jump:
+//  - Width: Noto Naskh Arabic (Android's default Arabic font) renders this
+//    app's Persian text ~10% narrower than Vazirmatn — frequency-weighted
+//    advance ratio 1.10 at weight 400, measured with fontTools over the
+//    app's actual Persian strings (1.12 at 500; 1.08 against the Bold local
+//    face / 1.13 against Regular at 600). size-adjust: 110% scales the
+//    fallback up to match; it also halves the Persian-digit gap (Naskh
+//    digits are 24% narrower than Vazirmatn's — 110% leaves ~11%). Noto
+//    Sans Arabic needs almost no adjust (ratio ~0.99), but Naskh is the
+//    default on Android, so the tuning targets Naskh. The other listed
+//    fonts (Geeza Pro, Tahoma, Segoe UI) are unmeasured — 110% is an
+//    approximation for them, but the vertical fix below still applies to
+//    any of them (the overrides replace the font's own metrics entirely).
+//  - Line box: Vazirmatn's line box is 156.25% of em (ascent 2100 +
+//    descent 1100 over UPM 2048; hhea == typo metrics); Naskh's is 170.3%.
+//    The overrides make the fallback's line box match Vazirmatn's exactly.
+//  The overrides are DIVIDED by size-adjust: verified in headless Chromium
+//  that size-adjust scales the metric overrides too — a 110% size-adjust
+//  with raw 102.54%/53.71% overrides produced a 172px line box at 100px
+//  font-size, while divided 93.22%/48.83% produced exactly 156px. Raw
+//  overrides would leave the line box 10% too tall.
+//  The html stack override below is un-layered, so it beats index.css's
+//  `@layer base` html rule. Older browsers ignore the unknown descriptors
+//  and degrade to today's plain-system-ui fallback.
+const FALLBACK_SIZE_ADJUST = 110; // %
+const FALLBACK_ASCENT_OVERRIDE = 93.22; // (2100 / 2048) / 1.10
+const FALLBACK_DESCENT_OVERRIDE = 48.83; // (1100 / 2048) / 1.10
+const FALLBACK_FACES = [400, 500, 600].map(
+  (weight) =>
+    `@font-face{font-family:'Vazirmatn Fallback';font-style:normal;font-weight:${weight};src:local('Noto Naskh Arabic'),local('Noto Sans Arabic'),local('Geeza Pro'),local('Tahoma'),local('Segoe UI');size-adjust:${FALLBACK_SIZE_ADJUST}%;ascent-override:${FALLBACK_ASCENT_OVERRIDE}%;descent-override:${FALLBACK_DESCENT_OVERRIDE}%;line-gap-override:0%;}`,
+);
+
 const style = document.createElement('style');
 style.setAttribute('data-eyvan-fonts', '');
-style.textContent = FACES.map(
-  ({weight, range, url}) =>
-    `@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:${weight};src:url(${url}) format('woff2');unicode-range:${range};}`,
-).join('\n');
+style.textContent = [
+  ...FACES.map(
+    ({weight, range, url}) =>
+      `@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:${weight};src:url(${url}) format('woff2');unicode-range:${range};}`,
+  ),
+  ...FALLBACK_FACES,
+  `html{font-family:'Vazirmatn','Vazirmatn Fallback',system-ui,-apple-system,sans-serif;}`,
+].join('\n');
 document.head.appendChild(style);

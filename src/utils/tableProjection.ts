@@ -19,6 +19,12 @@ export interface TableProjectionInput {
   tableScale: number;
   /** Camera pitch tilt in degrees: 0 = straight overhead, ~71 = eye-level front */
   pitchDeg: number;
+  /**
+   * Optional precomputed pitch trig. The pitch is constant across items
+   * within a frame, so per-frame callers pass this in to avoid recomputing
+   * sin/cos per item. When omitted, it is computed from pitchDeg.
+   */
+  pitchTrig?: { cosPitch: number; sinPitch: number };
   /** Current continuous turntable rotation angle in degrees */
   wheelAngleDeg: number;
   /** Static angular slot of this drink around the ring (0 = 12 o'clock, 180 = 6 o'clock) */
@@ -52,6 +58,7 @@ export function projectTableSeat(input: TableProjectionInput): ProjectedSeat {
     ringRadiusPx,
     tableScale,
     pitchDeg,
+    pitchTrig,
     wheelAngleDeg,
     slotAngleDeg,
   } = input;
@@ -63,10 +70,13 @@ export function projectTableSeat(input: TableProjectionInput): ProjectedSeat {
   const localX = Math.sin(totalRad) * scaledR;
   const localY = -Math.cos(totalRad) * scaledR;
 
-  const pitchRad = (pitchDeg * Math.PI) / 180;
+  const cosPitch =
+    pitchTrig?.cosPitch ?? Math.cos((pitchDeg * Math.PI) / 180);
+  const sinPitch =
+    pitchTrig?.sinPitch ?? Math.sin((pitchDeg * Math.PI) / 180);
   const rotX = localX;
-  const rotY = localY * Math.cos(pitchRad);
-  const rotZ = localY * Math.sin(pitchRad);
+  const rotY = localY * cosPitch;
+  const rotZ = localY * sinPitch;
 
   const denom = Math.max(240, perspectivePx - rotZ);
   const perspScale = perspectivePx / denom;

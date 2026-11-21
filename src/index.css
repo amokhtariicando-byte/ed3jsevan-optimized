@@ -34,7 +34,12 @@
 
   body {
     margin: 0;
+    /* 100dvh (with a 100vh fallback) tracks the mobile browser toolbar:
+       with plain 100vh the body is taller than the visible viewport while
+       the toolbar is shown, so the table view could scroll by the toolbar
+       height and jump when the toolbar hides/shows. */
     min-height: 100vh;
+    min-height: 100dvh;
     background-color: var(--eyvan-cream);
     color: var(--eyvan-ink);
     overflow-x: hidden;
@@ -109,15 +114,16 @@
   }
 }
 
-/* Subtle editorial fade when switching active item (opacity only, so rapid
-   stepping doesn't flicker) */
-@keyframes eyvanTextIn {
+/* Single shared opacity-only fade (P2-9): the old eyvanTextIn / eyvanViewIn /
+   eyvanTableSwap keyframes were byte-identical, so all three classes use
+   this one. Opacity only, so rapid stepping doesn't flicker. */
+@keyframes eyvanFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 .eyvan-text-enter {
-  animation: eyvanTextIn 200ms var(--ease-out) both;
+  animation: eyvanFadeIn 200ms var(--ease-out) both;
 }
 
 /* True crossfade for the showcase item text (title, description, price):
@@ -194,13 +200,11 @@
   transform: translateY(-12px);
 }
 
-/* View + grid transitions (plan 010) */
-@keyframes eyvanViewIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+/* View + grid transitions (plan 010). The opacity-only fades share
+   eyvanFadeIn (defined above); only the card reveal keeps its own
+   keyframes because it also translates. */
 .eyvan-view-enter {
-  animation: eyvanViewIn 250ms var(--ease-out) both;
+  animation: eyvanFadeIn 250ms var(--ease-out) both;
 }
 @keyframes eyvanCardIn {
   from { opacity: 0; transform: translateY(8px); }
@@ -209,12 +213,8 @@
 .eyvan-card-enter {
   animation: eyvanCardIn 250ms var(--ease-out) both;
 }
-@keyframes eyvanTableSwap {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
 .eyvan-table-swap {
-  animation: eyvanTableSwap 250ms var(--ease-out) both;
+  animation: eyvanFadeIn 250ms var(--ease-out) both;
 }
 
 /* Clean scrollbars */
@@ -295,6 +295,24 @@
   }
   .eyvan-plate-scale {
     transition-duration: 0.01ms !important;
+  }
+  /* P1-5: all 4 overlays stop sliding/scaling. The transition lives on the
+     shared .eyvan-overlay-panel (and .eyvan-drawer-panel re-declares its
+     own); the other variant classes only set the closed-state transform,
+     so all five panel classes are covered. The backdrop's opacity-only
+     fade is kept deliberately — a pure opacity change is not a vestibular
+     trigger, and an instant full-screen darkening flash would read worse;
+     same precedent as .eyvan-showcase-panel keeping opacity above, and as
+     the opacity-only eyvanFadeIn animations, which are also kept. */
+  .eyvan-overlay-panel,
+  .eyvan-drawer-panel,
+  .eyvan-sheet-panel,
+  .eyvan-modal-panel,
+  .eyvan-search-panel {
+    transition: none !important;
+  }
+  .eyvan-card-enter {
+    animation: none !important;
   }
 }
 

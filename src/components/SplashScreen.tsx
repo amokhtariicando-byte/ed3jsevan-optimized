@@ -116,27 +116,29 @@ const EyvanSplashLogo: React.FC<{ animated: boolean }> = ({ animated }) => (
       strokeLinecap="round"
     />
 
-    {/* Persian wordmark «ایوان» */}
+    {/* Persian wordmark «ایوان» — weight 600 is the heaviest Vazirmatn
+        weight shipped (400/500/600); 900 would render as synthesized
+        faux-bold (P2-7). */}
     <text
       x="100"
       y="232"
       textAnchor="middle"
       fill="currentColor"
       fontFamily="Vazirmatn, sans-serif"
-      fontWeight="900"
+      fontWeight="600"
       fontSize="42"
       letterSpacing="0"
     >
       ایوان
     </text>
-    {/* Subtitle «کافه و رستوران» */}
+    {/* Subtitle «کافه و رستوران» — 600, same reason as above (P2-7). */}
     <text
       x="100"
       y="254"
       textAnchor="middle"
       fill="currentColor"
       fontFamily="Vazirmatn, sans-serif"
-      fontWeight="700"
+      fontWeight="600"
       fontSize="16"
       opacity="0.92"
     >
@@ -173,7 +175,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#F8F7F2] transition-all duration-400 ease-out ${
+      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#F8F7F2] transition-[opacity,transform] duration-400 ease-out ${
         leaving ? 'pointer-events-none scale-105 opacity-0' : ''
       }`}
       role="status"

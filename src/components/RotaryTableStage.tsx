@@ -74,6 +74,62 @@ function writeStyle(
 }
 
 /**
+ * Numeric-keyed style writer (P2-3): compares the numeric inputs BEFORE
+ * building the CSS string, so a frame where a value didn't move allocates
+ * no string and touches no DOM. `writeStyle` builds the string first and
+ * lets the dirty check discard it — during a top-view wheel turn ~25 of
+ * ~27 strings per frame were built then thrown away (only the disc angle
+ * actually moves).
+ *
+ * Exact numeric equality is used: equal numbers always format equally, so
+ * a skipped write is never wrong. A value that moved below the format's
+ * precision may rarely re-write an identical string — harmless.
+ *
+ * RULE: a given (element, prop) pair must be written through exactly ONE
+ * of `writeStyle` / `writeStyleNums`, or the two caches desync. In
+ * paintFrame, numeric-derived values use this helper and only the literal
+ * strings ('none'/'auto', 'visible'/'hidden') use `writeStyle`.
+ */
+const styleNumsCache = new WeakMap<
+  HTMLElement,
+  Record<string, readonly number[]>
+>();
+
+function writeStyleNums(
+  el: HTMLElement | null,
+  prop: 'transform' | 'opacity' | 'zIndex',
+  nums: readonly number[],
+  build: () => string,
+): void {
+  if (!el) return;
+  let cache = styleNumsCache.get(el);
+  if (!cache) {
+    cache = {};
+    styleNumsCache.set(el, cache);
+  }
+  const prev = cache[prop];
+  if (prev !== undefined && prev.length === nums.length) {
+    let same = true;
+    for (let i = 0; i < nums.length; i++) {
+      if (prev[i] !== nums[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return;
+  }
+  cache[prop] = nums;
+  (el.style as unknown as Record<string, string>)[prop] = build();
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
+/**
  * Wraps an angle delta to (-180, 180] so a drag crossing the ±180° seam
  * doesn't jump the wheel.
  */
@@ -354,7 +410,12 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
   );
 });
 
-export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
+// P1-2: memoised so an item step / bean switch in App doesn't re-render
+// the whole stage tree (reconciliation only, but ~4-5x/s while stepping).
+// Effective once App passes stable callbacks (useCallback) — `category`
+// and `items` are already useMemo'd there, and the remaining props are
+// primitives or stable setState fns.
+export const RotaryTableStage = memo(function RotaryTableStage({
   category,
   items,
   activeIndex,
@@ -365,7 +426,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
   onStep,
   onExitOverviewToIndex,
   onChangeCameraAngle,
-}) => {
+}: RotaryTableStageProps) {
   const [viewport, setViewport] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1440,
     height: typeof window !== 'undefined' ? window.innerHeight : 900,
@@ -376,6 +437,9 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
 
   const isMobile = viewport.width < 1024;
+  // Render-time reduced-motion probe for the resize size-transitions
+  // below (paintFrame-driven motion probes it separately, per animation).
+  const reduceMotion = prefersReducedMotion();
   const isFrontCamera =
     cameraAngle === 'front' && !overviewMode && !category.comingSoon;
 
@@ -388,12 +452,30 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     }
   }, [isFrontCamera]);
 
-  // Idle-preload the active category's tiny WebP cutouts (~25KB each) so entering Front View is instant
+  // Idle-preload the active category's tiny WebP cutouts (~25KB each) so entering Front View is instant.
+  // On mobile only the ringDist <= 2 seats around the active item are
+  // actually rendered (see the cull in the standing layer below), so
+  // preloading the whole category wastes ~30-80 KB per category on phones
+  // (P1-8) — restrict the preload set to the rendered seats. Re-runs on
+  // activeIndex so the window follows the wheel as the user steps; already-
+  // cached srcs are cheap no-ops. Desktop renders every seat, so it keeps
+  // the full set.
   useEffect(() => {
     if (category.comingSoon || items.length === 0) return;
-    const uniqueCutouts = Array.from(new Set(items.map((i) => i.cutoutImage)));
+    const preloadCutouts = isMobile
+      ? Array.from(
+          new Set(
+            items
+              .filter((_, idx) => {
+                const rawDiff = Math.abs(idx - activeIndex);
+                return Math.min(rawDiff, items.length - rawDiff) <= 2;
+              })
+              .map((i) => i.cutoutImage),
+          ),
+        )
+      : Array.from(new Set(items.map((i) => i.cutoutImage)));
     const preload = () => {
-      for (const src of uniqueCutouts) {
+      for (const src of preloadCutouts) {
         const img = new Image();
         img.decoding = 'async';
         img.src = src;
@@ -405,7 +487,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     }
     const timer = window.setTimeout(preload, 1200);
     return () => window.clearTimeout(timer);
-  }, [category.id, category.comingSoon, items]);
+  }, [category.id, category.comingSoon, items, isMobile, activeIndex]);
 
   useEffect(() => {
     let timer: number | undefined;
@@ -513,6 +595,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
   ]);
 
   // Direct DOM refs for 100% GPU-composited, ZERO-React-re-render 60fps animation
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const topGlowRef = useRef<HTMLDivElement | null>(null);
   const frontGlowRef = useRef<HTMLDivElement | null>(null);
   const cameraRigRef = useRef<HTMLDivElement | null>(null);
@@ -577,33 +660,48 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     const standingReveal = Math.max(0, Math.min(1, (pitchRatio - 0.18) / 0.82));
     const halfD = meta.tableDiameter / 2;
 
-    writeStyle(topGlowRef.current, 'opacity', (1 - pitchRatio).toFixed(3));
-    writeStyle(frontGlowRef.current, 'opacity', pitchRatio.toFixed(3));
+    // P2-3: numeric-keyed writes — compare the numbers BEFORE building the
+    // CSS string. During a top-view wheel turn only the disc angle moves,
+    // so nearly every other string used to be built then discarded.
+    const topGlowOp = 1 - pitchRatio;
+    writeStyleNums(topGlowRef.current, 'opacity', [topGlowOp], () =>
+      topGlowOp.toFixed(3),
+    );
+    writeStyleNums(frontGlowRef.current, 'opacity', [pitchRatio], () =>
+      pitchRatio.toFixed(3),
+    );
 
-    writeStyle(
+    const rigX = state.cx - halfD;
+    const rigY = state.cy - halfD;
+    writeStyleNums(
       cameraRigRef.current,
       'transform',
-      `translate3d(${(state.cx - halfD).toFixed(2)}px, ${(state.cy - halfD).toFixed(2)}px, 0) perspective(${state.perspective.toFixed(0)}px) rotateX(${state.pitch.toFixed(3)}deg) scale(${state.scale.toFixed(4)})`,
+      [rigX, rigY, state.perspective, state.pitch, state.scale],
+      () =>
+        `translate3d(${rigX.toFixed(2)}px, ${rigY.toFixed(2)}px, 0) perspective(${state.perspective.toFixed(0)}px) rotateX(${state.pitch.toFixed(3)}deg) scale(${state.scale.toFixed(4)})`,
     );
 
-    writeStyle(
-      slabEdgeRef.current,
-      'opacity',
-      Math.min(1, pitchRatio * 1.4).toFixed(3),
+    const slabOp = Math.min(1, pitchRatio * 1.4);
+    writeStyleNums(slabEdgeRef.current, 'opacity', [slabOp], () =>
+      slabOp.toFixed(3),
     );
 
-    writeStyle(
-      wheelDiscRef.current,
-      'transform',
+    writeStyleNums(wheelDiscRef.current, 'transform', [state.wheelAngle], () =>
       `rotateZ(${state.wheelAngle.toFixed(3)}deg)`,
     );
 
     if (!meta.comingSoon) {
       const count = Math.max(1, meta.items.length);
-      const coasterOpacity = Math.min(1, standingReveal * 1.2).toFixed(3);
+      const coasterOp = Math.min(1, standingReveal * 1.2);
+      const buildCoasterOp = () => coasterOp.toFixed(3);
 
       for (let i = 0; i < count; i++) {
-        writeStyle(coasterRefs.current[i], 'opacity', coasterOpacity);
+        writeStyleNums(
+          coasterRefs.current[i],
+          'opacity',
+          [coasterOp],
+          buildCoasterOp,
+        );
         const plateBtn = plateBtnRefs.current[i];
         if (plateBtn) {
           const baseOp = meta.overviewMode
@@ -611,10 +709,9 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
             : i === meta.activeIndex
               ? 1
               : 0.88;
-          writeStyle(
-            plateBtn,
-            'opacity',
-            (plateOpacityFactor * baseOp).toFixed(3),
+          const plateOp = plateOpacityFactor * baseOp;
+          writeStyleNums(plateBtn, 'opacity', [plateOp], () =>
+            plateOp.toFixed(3),
           );
           writeStyle(
             plateBtn,
@@ -635,6 +732,14 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
         if (visible) {
           const revealScaleY = 0.58 + standingReveal * 0.42;
+          // P2-3: pitch is constant across items within a frame — compute
+          // its trig once and pass it into projectTableSeat instead of
+          // recomputing sin/cos per item.
+          const pitchRad = (state.pitch * Math.PI) / 180;
+          const pitchTrig = {
+            cosPitch: Math.cos(pitchRad),
+            sinPitch: Math.sin(pitchRad),
+          };
           for (let i = 0; i < count; i++) {
             const wrapper = seatWrapperRefs.current[i];
             if (!wrapper) continue;
@@ -648,6 +753,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
               ringRadiusPx: meta.ringRadiusPx,
               tableScale: state.scale,
               pitchDeg: state.pitch,
+              pitchTrig,
               wheelAngleDeg: state.wheelAngle,
               slotAngleDeg,
             });
@@ -658,30 +764,39 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                 ? 1
                 : Math.max(0.76, 0.76 + (proj.frontness + 1) * 0.22));
 
-            writeStyle(
+            writeStyleNums(
               wrapper,
               'transform',
-              `translate3d(${proj.screenX.toFixed(2)}px, ${proj.screenY.toFixed(2)}px, 0)`,
+              [proj.screenX, proj.screenY],
+              () =>
+                `translate3d(${proj.screenX.toFixed(2)}px, ${proj.screenY.toFixed(2)}px, 0)`,
             );
-            writeStyle(wrapper, 'zIndex', String(proj.zIndex));
-            writeStyle(wrapper, 'opacity', seatOpacity.toFixed(3));
+            writeStyleNums(wrapper, 'zIndex', [proj.zIndex], () =>
+              String(proj.zIndex),
+            );
+            writeStyleNums(wrapper, 'opacity', [seatOpacity], () =>
+              seatOpacity.toFixed(3),
+            );
 
-            writeStyle(
+            writeStyleNums(
               seatShadowRefs.current[i],
               'transform',
-              `translate3d(-50%, -44%, 0) scale(${proj.perspScale.toFixed(4)})`,
+              [proj.perspScale],
+              () =>
+                `translate3d(-50%, -44%, 0) scale(${proj.perspScale.toFixed(4)})`,
             );
 
             const btnEl = seatBtnRefs.current[i];
             if (btnEl) {
               const isCup = item.vesselType === 'cup';
+              // shiftPct/yOff are per-item constants (cup vs tall) and the
+              // button element is keyed by item.id, so they are excluded
+              // from the numeric key — only the moving scales are compared.
               const shiftPct = isCup ? -45.5 : -50;
               const yOff = isCup ? 3 : 1;
               const sx = proj.perspScale;
               const sy = proj.perspScale * revealScaleY;
-              writeStyle(
-                btnEl,
-                'transform',
+              writeStyleNums(btnEl, 'transform', [sx, sy], () =>
                 `translate3d(${shiftPct}%, ${yOff}px, 0) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`,
               );
             }
@@ -763,9 +878,11 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     // half-turn ~600ms, so the table glides instead of lurching. The 380ms
     // floor only binds for tiny deltas (e.g. a drag released just short of
     // a slot), where it reads as a gentle detent settle. Camera moves run
-    // the full 600ms so wheel + camera stay one coherent gesture.
+    // 480ms (P1-4: was 600ms — the longest tap-response duration in the
+    // app; 480ms keeps the move coherent with the wheel while feeling
+    // ~20% snappier on the tap path).
     const durationMs = isCameraMove
-      ? 600
+      ? 480
       : Math.min(600, Math.max(380, 360 + wheelDelta * 1.3));
 
     if (rafIdRef.current !== null) {
@@ -774,8 +891,12 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - startTime) / durationMs);
-      const camEase = isCameraMove ? easeInOutCubic(t) : easeSoftOut(t);
-      const wheelEase = easeSoftOut(t);
+      // P2-3: solve the soft-out curve ONCE per tick. The wheel always
+      // uses it and the camera reuses it on non-camera moves — it was
+      // solved twice before (Newton-Raphson, up to 8 iterations each).
+      const softEase = easeSoftOut(t);
+      const camEase = isCameraMove ? easeInOutCubic(t) : softEase;
+      const wheelEase = softEase;
 
       const current: AnimatedCameraState = {
         wheelAngle:
@@ -824,6 +945,16 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
   // Wheel scroll & touch-swipe drag handling on the circular stage
   const wheelLockRef = useRef<number>(0);
+  // rAF-coalesced drag moves (P2-4): pointermove can fire at 120 Hz on
+  // touch, faster than paintFrame needs. Only the latest position per
+  // frame is processed; finishDrag flushes any pending move first so the
+  // release velocity and final angle include the last pointer position.
+  const pendingDragMoveRef = useRef<{
+    x: number;
+    y: number;
+    buttons: number;
+  } | null>(null);
+  const dragRafRef = useRef<number | null>(null);
   const dragStartRef = useRef<{
     active: boolean;
     startX: number;
@@ -834,6 +965,8 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     snapshotTime: number;
     centerX: number;
     centerY: number;
+    pointerId: number;
+    captureSet: boolean;
   }>({
     active: false,
     startX: 0,
@@ -844,6 +977,8 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     snapshotTime: 0,
     centerX: 0,
     centerY: 0,
+    pointerId: -1,
+    captureSet: false,
   });
 
   const handleStageWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -875,6 +1010,12 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       : e.clientY;
     const angle = pointerAngleDeg(e.clientX, e.clientY, centerX, centerY);
     const now = performance.now();
+    // A previous drag's coalesced frame must never leak into this one.
+    if (dragRafRef.current !== null) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
+    pendingDragMoveRef.current = null;
     dragStartRef.current = {
       active: true,
       startX: e.clientX,
@@ -885,31 +1026,55 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       snapshotTime: now,
       centerX,
       centerY,
+      pointerId: e.pointerId,
+      captureSet: false,
     };
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  // Applies one drag position: angular 1:1 tracking + velocity snapshot.
+  // Called at most once per animation frame (see handlePointerMove) and
+  // synchronously from finishDrag to flush the final position.
+  const processDragMove = (
+    clientX: number,
+    clientY: number,
+    buttons: number,
+  ) => {
     const drag = dragStartRef.current;
-    if (!drag.active) return;
     // If the press was lost (pointerup missed, e.g. released outside the
     // window), finish the drag as a cancel instead of tracking a hover.
-    if (e.buttons === 0) {
-      finishDrag(e.clientX, e.clientY, false);
+    if (buttons === 0) {
+      finishDrag(clientX, clientY, false);
       return;
     }
+    // Engage pointer capture once the gesture is unambiguously a drag
+    // (past the 16px tap threshold) so moves keep flowing even if the
+    // finger slides off the stage or over an overlaying element.
+    // Capturing on pointerdown would retarget the pointerup to the stage
+    // and break the plate buttons' click, so it must stay deferred.
+    if (!drag.captureSet) {
+      const distFromStart = Math.hypot(
+        clientX - drag.startX,
+        clientY - drag.startY,
+      );
+      if (distFromStart >= 16) {
+        drag.captureSet = true;
+        try {
+          stageRef.current?.setPointerCapture(drag.pointerId);
+        } catch {
+          // Pointer already gone — capture is best-effort.
+        }
+      }
+    }
     const angle = pointerAngleDeg(
-      e.clientX,
-      e.clientY,
+      clientX,
+      clientY,
       drag.centerX,
       drag.centerY,
     );
     // Too close to the hub: atan2 is unstable there, so track the angle but
     // don't rotate — this also keeps tracking continuous if the finger crosses
     // the center.
-    const radius = Math.hypot(
-      e.clientX - drag.centerX,
-      e.clientY - drag.centerY,
-    );
+    const radius = Math.hypot(clientX - drag.centerX, clientY - drag.centerY);
     if (radius < 24) {
       drag.lastPointerAngle = angle;
       return;
@@ -933,6 +1098,30 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     }
   };
 
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStartRef.current;
+    if (!drag.active) return;
+    // rAF-coalesce: keep only the latest position; the frame callback
+    // processes it once, so a 120 Hz touch stream costs at most one
+    // paintFrame per frame. 1:1 feel is unchanged — every frame still
+    // applies the freshest angle.
+    pendingDragMoveRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      buttons: e.buttons,
+    };
+    if (dragRafRef.current === null) {
+      dragRafRef.current = requestAnimationFrame(() => {
+        dragRafRef.current = null;
+        const pending = pendingDragMoveRef.current;
+        pendingDragMoveRef.current = null;
+        if (pending && dragStartRef.current.active) {
+          processDragMove(pending.x, pending.y, pending.buttons);
+        }
+      });
+    }
+  };
+
   const finishDrag = (
     clientX: number,
     clientY: number,
@@ -940,7 +1129,20 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
   ) => {
     const drag = dragStartRef.current;
     if (!drag.active) return;
+    // Flush any coalesced move not yet processed so the release velocity
+    // and final angle include the very last pointer position. Mark
+    // inactive FIRST: a flushed move with buttons === 0 calls finishDrag
+    // again from processDragMove, and must hit the guard above.
+    if (dragRafRef.current !== null) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
+    const pending = pendingDragMoveRef.current;
+    pendingDragMoveRef.current = null;
     drag.active = false;
+    if (pending) {
+      processDragMove(pending.x, pending.y, pending.buttons);
+    }
 
     const now = performance.now();
     const dx = clientX - drag.startX;
@@ -1054,6 +1256,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
   return (
     <div
+      ref={stageRef}
       onWheel={handleStageWheel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -1063,12 +1266,17 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       className="pointer-events-auto absolute inset-0 overflow-hidden select-none touch-pan-y"
     >
       {/* Static GPU-crossfaded softbox studio backdrop illumination (zero per-frame gradient repaints) */}
+      {/* Opacity on both glows (and the slab edge + coasters below) is
+          owned SOLELY by paintFrame — React must not set it, or the two
+          writers desync: on a camera toggle React forced 0/1 while
+          paintFrame's dirty check skipped the in-between values, flashing
+          the glows swapped for one frame. The layout-effect paint runs
+          before first paint, so there is no unstyled initial frame. */}
       <div
         ref={topGlowRef}
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
         style={{
-          opacity: isFrontCamera ? 0 : 1,
           background: `radial-gradient(circle at ${isMobile ? '50% 32%' : '25% 50%'}, rgba(212, 180, 124, 0.08) 0%, rgba(248, 247, 242, 0) 60%)`,
         }}
       />
@@ -1077,7 +1285,6 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
         style={{
-          opacity: isFrontCamera ? 1 : 0,
           background: isMobile
             ? 'radial-gradient(ellipse 74% 40% at 50% 34%, rgba(212, 180, 124, 0.2) 0%, rgba(248, 247, 242, 0) 70%)'
             : `radial-gradient(ellipse 44% 58% at ${drawerOpen ? 20 : 25}% 48%, rgba(212, 180, 124, 0.18) 0%, rgba(248, 247, 242, 0) 68%)`,
@@ -1105,7 +1312,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
               background:
                 'linear-gradient(180deg, #D5CEC1 0%, #BDB3A1 50%, #8F8574 100%)',
               boxShadow: '0 22px 48px rgba(3, 6, 15, 0.72)',
-              opacity: isFrontCamera ? 1 : 0,
+              // Opacity owned solely by paintFrame (see the glow note above).
             }}
           />
 
@@ -1200,7 +1407,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                           border: isActive
                             ? '1.2px solid rgba(175, 137, 75, 0.44)'
                             : '1px solid rgba(175, 137, 75, 0.24)',
-                          opacity: isFrontCamera ? 1 : 0,
+                          // Opacity owned solely by paintFrame (see the glow note above).
                         }}
                       />
 
@@ -1250,7 +1457,14 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                           <FadeInImage
                             src={item.image}
                             alt={item.name}
+                            width={480}
+                            height={480}
                             decoding="async"
+                            // P1-8: the front/selected plate is the hero
+                            // image — prioritise its fetch. Other plates
+                            // keep the browser default. FadeInImage passes
+                            // this straight through to the <img>.
+                            fetchPriority={isActive ? 'high' : undefined}
                             referrerPolicy="no-referrer"
                             draggable={false}
                             onError={() =>
@@ -1387,6 +1601,13 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                     height: `${shadowBoxH}px`,
                     transformOrigin: '50% 50%',
                     backgroundImage: shadowBg,
+                    // Size glides with toolbar/rotation resizes (the box
+                    // derives from vh via baseHeight). paintFrame writes
+                    // only transform here, so this never fights the rAF
+                    // loop; reduced-motion keeps the instant change.
+                    transition: reduceMotion
+                      ? undefined
+                      : 'width 300ms ease-out, height 300ms ease-out',
                   }}
                 />
 
@@ -1416,6 +1637,16 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                     height: `${baseHeight}px`,
                     width: 'auto',
                     transformOrigin: isCup ? '45.5% 100%' : '50% 100%',
+                    // Height glides with toolbar/rotation resizes (it
+                    // derives from vh) instead of popping ~10-30px while
+                    // the foot position animates smoothly. paintFrame
+                    // writes only transform to this button, so a height
+                    // transition never fights the rAF loop; reduced-motion
+                    // keeps the instant change. (NOT a transform
+                    // transition — those are forbidden on .eyvan-stage-btn.)
+                    transition: reduceMotion
+                      ? undefined
+                      : 'height 300ms ease-out',
                   }}
                 >
                   <FadeInImage
@@ -1462,4 +1693,4 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
         )}
     </div>
   );
-};
+});

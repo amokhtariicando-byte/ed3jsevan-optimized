@@ -50,11 +50,14 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
   if (!open) return null;
 
   return (
+    // P2-10: translucent solid backdrop, deliberately NO backdrop-blur —
+    // a full-screen blur is the most expensive filter in the app while
+    // the sheet is open.
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="mobile-categories-title"
-      className="eyvan-overlay-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#060A13]/72 backdrop-blur-[2px]"
+      className="eyvan-overlay-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#060A13]/72"
       data-state={panelState === 'open' ? 'open' : 'closed'}
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();

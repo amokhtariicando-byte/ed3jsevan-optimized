@@ -126,7 +126,10 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
           <div className="overflow-hidden rounded-[14px] border border-[rgba(107,112,67,0.1)] bg-[#FFFFFF]">
             <FadeInImage
               src={item.frontImage}
+              fallbackSrc={item.image}
               alt={item.name}
+              width={680}
+              height={508}
               decoding="async"
               referrerPolicy="no-referrer"
               className="h-52 w-full object-cover"

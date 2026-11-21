@@ -1,4 +1,11 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Disc,
   LayoutGrid,
@@ -21,8 +28,200 @@ import {
   toPersianDigits,
 } from '../utils/menuLogic';
 import { AnimatedContent } from './AnimatedContent';
-import { FadeInImage } from './FadeInImage';
+import { FadeInImage, toThumbSrc } from './FadeInImage';
 import { InstagramIcon } from './InstagramIcon';
+
+/**
+ * Off-screen cards skip rendering until near the viewport (P1-1):
+ * `content-visibility: auto` + an intrinsic-size estimate close to the
+ * real card height (~180px: 96–112px thumb row + paddings + the 41px
+ * footer). The `auto` keyword remembers each card's real height after its
+ * first render, so the estimate only applies before first paint — the
+ * scrollbar length self-corrects as cards render. Applied to the <article>
+ * (inside the AnimatedContent wrapper), never to the observed wrapper
+ * itself, so the reveal observer always sees a laid-out box.
+ */
+const CARD_STYLE: React.CSSProperties = {
+  contentVisibility: 'auto',
+  containIntrinsicSize: 'auto 180px',
+};
+
+/** Intrinsic size of the 256px front thumbs (680×508 full-size → 256×191). */
+const THUMB_WIDTH = 256;
+const THUMB_HEIGHT = 191;
+
+interface MenuItemCardProps {
+  item: MenuItem;
+  /** The bean the user picked for this item in the drawer (if any). */
+  preferredBean: BeanType | undefined;
+  /** Stagger delay in seconds (50ms/card, capped at 400ms). */
+  delay: number;
+  /** First-row cards load eagerly so the above-the-fold thumbs arrive first. */
+  eager: boolean;
+  onSelectItemDetails: (item: MenuItem) => void;
+  onInspectOnTable: (item: MenuItem) => void;
+}
+
+/**
+ * One menu card, memoized (P1-2): a search keystroke re-renders
+ * SimpleMenuView, and without this all 67 cards re-rendered with it.
+ * Every prop is stable across keystrokes — `item` is a module-level
+ * MENU_ITEMS reference (groupMenuForSimpleView only filters, never
+ * clones), `preferredBean`/`delay`/`eager` are primitives, and the two
+ * callbacks are the parent's stable latest-ref wrappers — so a keystroke
+ * only re-renders cards whose position or bean actually changed.
+ */
+const MenuItemCard = React.memo(function MenuItemCard({
+  item,
+  preferredBean,
+  delay,
+  eager,
+  onSelectItemDetails,
+  onInspectOnTable,
+}: MenuItemCardProps) {
+  const hasDualBean =
+    typeof item.priceBlend50 === 'number' &&
+    typeof item.priceArabica100 === 'number';
+  const isArabicaOnly =
+    typeof item.priceBlend50 !== 'number' &&
+    typeof item.priceArabica100 === 'number';
+
+  return (
+    <AnimatedContent
+      distance={24}
+      duration={0.6}
+      delay={delay}
+      className="h-full"
+    >
+      <article
+        className="group flex h-full flex-col overflow-hidden rounded-[14px] border border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] transition-colors hover:border-[rgba(181,148,91,0.38)]"
+        style={CARD_STYLE}
+      >
+        {/* Top Row: Studio Eye-Level Photo + Name + Description */}
+        <div className="flex gap-3.5 p-3.5">
+          <button
+            type="button"
+            onClick={() => onSelectItemDetails(item)}
+            aria-label={`مشاهده جزئیات ${item.name}`}
+            className="h-24 w-24 shrink-0 overflow-hidden rounded-[10px] border border-[rgba(107,112,67,0.08)] bg-[#F8F7F2] sm:h-28 sm:w-28"
+          >
+            <FadeInImage
+              src={toThumbSrc(item.frontImage)}
+              fallbackSrc={item.frontImage}
+              alt={item.name}
+              width={THUMB_WIDTH}
+              height={THUMB_HEIGHT}
+              loading={eager ? 'eager' : 'lazy'}
+              decoding="async"
+              referrerPolicy="no-referrer"
+              className="eyvan-card-img h-full w-full object-cover"
+              style={{
+                // The thumb also scales on hover (see
+                // .eyvan-card-img in index.css), so the
+                // fade transition must carry the
+                // transform transition too — one
+                // `transition` property covers both.
+                transition:
+                  'opacity 200ms ease-out, transform 250ms cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+            />
+          </button>
+
+          <div className="flex min-w-0 flex-1 flex-col justify-between">
+            <div>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="text-base font-semibold leading-snug text-[#2F321C]">
+                  {item.name}
+                </h3>
+                {item.highlight && (
+                  <span className="shrink-0 text-[11px] font-medium text-[#9AA16A]">
+                    {item.highlight}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1.5 line-clamp-2 text-xs leading-6 text-[#78716C]">
+                {item.description}
+              </p>
+            </div>
+
+            {/* Pricing Row (No Trailing Zeros) */}
+            <div className="mt-2.5">
+              {hasDualBean ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span
+                    className={`tabular-fa ${
+                      preferredBean === 'arabica100'
+                        ? 'text-[#78716C]'
+                        : 'font-semibold text-[#6B7043]'
+                    }`}
+                  >
+                    ۵۰/۵۰: {formatToman(item.priceBlend50!)}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="text-[#78716C]"
+                  >
+                    ·
+                  </span>
+                  <span
+                    className={`tabular-fa ${
+                      preferredBean === 'arabica100'
+                        ? 'font-semibold text-[#6B7043]'
+                        : 'text-[#57534E]'
+                    }`}
+                  >
+                    عربیکا: {formatToman(item.priceArabica100!)}
+                  </span>
+                </div>
+              ) : isArabicaOnly ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="tabular-fa text-sm font-semibold text-[#6B7043]">
+                    {formatToman(item.priceArabica100!)}
+                  </span>
+                  <span className="text-[11px] text-[#9AA16A]">
+                    ۱۰۰٪ عربیکا
+                  </span>
+                </div>
+              ) : (
+                <span className="tabular-fa text-sm font-semibold text-[#6B7043]">
+                  {formatToman(item.price ?? 0)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Card Footer Actions */}
+        <div className="mt-auto flex items-center justify-between gap-2 border-t border-[rgba(107,112,67,0.08)] bg-[#FFFFFF] px-3.5 py-2.5">
+          <button
+            type="button"
+            onClick={() => onSelectItemDetails(item)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7043] transition-colors hover:text-[#4F5330]"
+          >
+            <SlidersHorizontal
+              className="h-3.5 w-3.5 text-[#6B7043]"
+              strokeWidth={1.6}
+            />
+            <span>
+              {item.supportsSyrup
+                ? 'سیروپ و جزئیات'
+                : 'جزئیات محصول'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onInspectOnTable(item)}
+            className="inline-flex items-center gap-1.5 text-xs text-[#78716C] transition-colors hover:text-[#2F321C]"
+          >
+            <Disc className="h-3.5 w-3.5" strokeWidth={1.6} />
+            <span>نمایش روی میز</span>
+          </button>
+        </div>
+      </article>
+    </AnimatedContent>
+  );
+});
 
 interface SimpleMenuViewProps {
   selectedCategory: CategoryId | 'all';
@@ -46,6 +245,25 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
   onReady,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Stable card callbacks (P1-2): App passes `onSelectItemDetails` as a
+  // fresh inline arrow on every render (App.tsx), which would defeat the
+  // MenuItemCard memo on every App re-render. The latest callback is kept
+  // in a ref and the cards get a wrapper whose identity never changes, so
+  // the memo holds across App re-renders too. (The proper fix is a
+  // useCallback in App; this keeps the cards fast regardless.)
+  const detailsRef = useRef(onSelectItemDetails);
+  detailsRef.current = onSelectItemDetails;
+  const inspectRef = useRef(onInspectOnTable);
+  inspectRef.current = onInspectOnTable;
+  const handleSelectItemDetails = useCallback(
+    (item: MenuItem) => detailsRef.current(item),
+    [],
+  );
+  const handleInspectOnTable = useCallback(
+    (item: MenuItem) => inspectRef.current(item),
+    [],
+  );
 
   // Safety net for the view-switch scroll flash: when this very tall view
   // mounts (after its lazy chunk loads), the browser's scroll anchoring can
@@ -205,7 +423,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
           </div>
         ) : (
           <div key={selectedCategory} className="mt-8 space-y-12">
-            {sections.map(({ category, items }) => (
+            {sections.map(({ category, items }, sectionIdx) => (
               <section
                 key={category.id}
                 aria-labelledby={`simple-cat-${category.id}`}
@@ -274,146 +492,17 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                   </AnimatedContent>
                 ) : (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {items.map((item, idx) => {
-                      const hasDualBean =
-                        typeof item.priceBlend50 === 'number' &&
-                        typeof item.priceArabica100 === 'number';
-                      const isArabicaOnly =
-                        typeof item.priceBlend50 !== 'number' &&
-                        typeof item.priceArabica100 === 'number';
-                      const preferredBean = selectedBeans[item.id];
-
-                      return (
-                        <AnimatedContent
-                          key={item.id}
-                          distance={24}
-                          duration={0.6}
-                          delay={Math.min(idx * 0.05, 0.4)}
-                          className="h-full"
-                        >
-                          <article className="group flex h-full flex-col overflow-hidden rounded-[14px] border border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] transition-colors hover:border-[rgba(181,148,91,0.38)]">
-                            {/* Top Row: Studio Eye-Level Photo + Name + Description */}
-                            <div className="flex gap-3.5 p-3.5">
-                              <button
-                                type="button"
-                                onClick={() => onSelectItemDetails(item)}
-                                aria-label={`مشاهده جزئیات ${item.name}`}
-                                className="h-24 w-24 shrink-0 overflow-hidden rounded-[10px] border border-[rgba(107,112,67,0.08)] bg-[#F8F7F2] sm:h-28 sm:w-28"
-                              >
-                                <FadeInImage
-                                  src={item.frontImage}
-                                  alt={item.name}
-                                  loading="lazy"
-                                  decoding="async"
-                                  referrerPolicy="no-referrer"
-                                  className="eyvan-card-img h-full w-full object-cover"
-                                  style={{
-                                    // The thumb also scales on hover (see
-                                    // .eyvan-card-img in index.css), so the
-                                    // fade transition must carry the
-                                    // transform transition too — one
-                                    // `transition` property covers both.
-                                    transition:
-                                      'opacity 200ms ease-out, transform 250ms cubic-bezier(0.4, 0, 0.2, 1)',
-                                  }}
-                                />
-                              </button>
-
-                              <div className="flex min-w-0 flex-1 flex-col justify-between">
-                                <div>
-                                  <div className="flex items-start justify-between gap-2">
-                                    <h3 className="text-base font-semibold leading-snug text-[#2F321C]">
-                                      {item.name}
-                                    </h3>
-                                    {item.highlight && (
-                                      <span className="shrink-0 text-[11px] font-medium text-[#9AA16A]">
-                                        {item.highlight}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="mt-1.5 line-clamp-2 text-xs leading-6 text-[#78716C]">
-                                    {item.description}
-                                  </p>
-                                </div>
-
-                                {/* Pricing Row (No Trailing Zeros) */}
-                                <div className="mt-2.5">
-                                  {hasDualBean ? (
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                                      <span
-                                        className={`tabular-fa ${
-                                          preferredBean === 'arabica100'
-                                            ? 'text-[#78716C]'
-                                            : 'font-semibold text-[#6B7043]'
-                                        }`}
-                                      >
-                                        ۵۰/۵۰: {formatToman(item.priceBlend50!)}
-                                      </span>
-                                      <span
-                                        aria-hidden="true"
-                                        className="text-[#78716C]"
-                                      >
-                                        ·
-                                      </span>
-                                      <span
-                                        className={`tabular-fa ${
-                                          preferredBean === 'arabica100'
-                                            ? 'font-semibold text-[#6B7043]'
-                                            : 'text-[#57534E]'
-                                        }`}
-                                      >
-                                        عربیکا: {formatToman(item.priceArabica100!)}
-                                      </span>
-                                    </div>
-                                  ) : isArabicaOnly ? (
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="tabular-fa text-sm font-semibold text-[#6B7043]">
-                                        {formatToman(item.priceArabica100!)}
-                                      </span>
-                                      <span className="text-[11px] text-[#9AA16A]">
-                                        ۱۰۰٪ عربیکا
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <span className="tabular-fa text-sm font-semibold text-[#6B7043]">
-                                      {formatToman(item.price ?? 0)}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Card Footer Actions */}
-                            <div className="mt-auto flex items-center justify-between gap-2 border-t border-[rgba(107,112,67,0.08)] bg-[#FFFFFF] px-3.5 py-2.5">
-                              <button
-                                type="button"
-                                onClick={() => onSelectItemDetails(item)}
-                                className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6B7043] transition-colors hover:text-[#4F5330]"
-                              >
-                                <SlidersHorizontal
-                                  className="h-3.5 w-3.5 text-[#6B7043]"
-                                  strokeWidth={1.6}
-                                />
-                                <span>
-                                  {item.supportsSyrup
-                                    ? 'سیروپ و جزئیات'
-                                    : 'جزئیات محصول'}
-                                </span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => onInspectOnTable(item)}
-                                className="inline-flex items-center gap-1.5 text-xs text-[#78716C] transition-colors hover:text-[#2F321C]"
-                              >
-                                <Disc className="h-3.5 w-3.5" strokeWidth={1.6} />
-                                <span>نمایش روی میز</span>
-                              </button>
-                            </div>
-                          </article>
-                        </AnimatedContent>
-                      );
-                    })}
+                    {items.map((item, idx) => (
+                      <MenuItemCard
+                        key={item.id}
+                        item={item}
+                        preferredBean={selectedBeans[item.id]}
+                        delay={Math.min(idx * 0.05, 0.4)}
+                        eager={sectionIdx === 0 && idx < 3}
+                        onSelectItemDetails={handleSelectItemDetails}
+                        onInspectOnTable={handleInspectOnTable}
+                      />
+                    ))}
                   </div>
                 )}
               </section>

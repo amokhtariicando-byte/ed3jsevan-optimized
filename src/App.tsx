@@ -102,6 +102,18 @@ function scrollToTopInstant(): void {
 const CROSSFADE_OUT_MS = 260;
 
 /**
+ * Resize debounce for the category-dock centering listener (P2-5), matching
+ * the stage's debounced resize listener (RotaryTableStage, 150ms).
+ */
+const RESIZE_DEBOUNCE_MS = 150;
+
+/**
+ * Background tone crossfade duration (P1-6). Must stay in sync with the
+ * `duration-400` on the background overlay layer in the App root.
+ */
+const BG_FADE_MS = 400;
+
+/**
  * Splash gate timings (P0-1). The splash used to hold 950ms + fade 700ms
  * (1,650ms fixed), hiding content that was already rendered underneath.
  * The 500ms hold lets the 500ms arch draw finish exactly as the fade
@@ -327,6 +339,70 @@ export default function App() {
     return getBackdropHex(tone);
   }, [viewMode, activeItem, activeCategory.defaultTone]);
 
+  // Background tone crossfade (P1-6). The root div used to animate
+  // `background-color` over 400ms on every tone-changing item step — a
+  // full-viewport repaint for the whole duration. Instead the committed
+  // tone sits on the root with NO transition, and tone changes crossfade
+  // through an opacity-only overlay layer (compositor-only, no repaint):
+  // the overlay fades in with the new tone, then the tone commits to the
+  // root and the overlay hides (its fade-out is invisible — the same color
+  // is underneath by then).
+  //
+  // The overlay is safe in table view because every piece of table content
+  // is positioned (stage absolute, showcase/footer relative, header/navs
+  // fixed) and later in DOM order, so all of it paints above the overlay.
+  // In simple view the menu content is in-flow (non-positioned) and a
+  // positioned overlay would paint ABOVE it, so tone changes there commit
+  // instantly instead — the switch is covered by the opaque loading
+  // overlay anyway.
+  //
+  // Opacity-only fades are deliberately kept under prefers-reduced-motion
+  // (same precedent as .eyvan-view-enter and the overlay backdrops in
+  // index.css), so there is no motion guard here.
+  const [bgBase, setBgBase] = useState(backdropHex);
+  const [bgOverlay, setBgOverlay] = useState<{hex: string; on: boolean}>({
+    hex: backdropHex,
+    on: false,
+  });
+  useEffect(() => {
+    if (backdropHex === bgBase && !bgOverlay.on) return;
+    if (viewMode === 'simple') {
+      // Instant commit: the simple menu's in-flow content would sit UNDER
+      // a positioned overlay layer, and the view-loading overlay covers
+      // the switch, so no crossfade is visible or needed here.
+      setBgBase(backdropHex);
+      setBgOverlay((prev) => (prev.on ? {...prev, on: false} : prev));
+      return;
+    }
+    let raf = 0;
+    if (!bgOverlay.on) {
+      // Mount the overlay transparent, then fade it in on the next frame
+      // — setting opacity in the same commit as the mount would skip the
+      // transition (no starting style to animate from). Double rAF: the
+      // first frame paints the transparent layer, the second starts the
+      // fade.
+      setBgOverlay({hex: backdropHex, on: false});
+      raf = window.requestAnimationFrame(() => {
+        raf = window.requestAnimationFrame(() =>
+          setBgOverlay({hex: backdropHex, on: true}),
+        );
+      });
+    } else {
+      // Overlay already up (rapid stepping): just retarget its color — one
+      // instant repaint of that layer — and restart the commit timer.
+      // Resetting opacity to 0 mid-fade would flicker.
+      setBgOverlay({hex: backdropHex, on: true});
+    }
+    const timer = window.setTimeout(() => {
+      setBgBase(backdropHex);
+      setBgOverlay((prev) => ({...prev, on: false}));
+    }, BG_FADE_MS + 50);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+    };
+  }, [backdropHex, bgBase, bgOverlay.on, viewMode]);
+
   // Keep the active category pill centered horizontally inside its own scroll rail (without ever vertically scrolling the page!)
   useEffect(() => {
     if (viewMode !== 'table') return;
@@ -356,10 +432,21 @@ export default function App() {
     const raf = window.requestAnimationFrame(() =>
       syncDock(prefersReducedMotion() ? 'auto' : 'smooth'),
     );
-    const onResize = () => syncDock('auto');
+    // Debounced (P2-5): an undebounced resize fires syncDock's 4x
+    // getBoundingClientRect + 2x scrollTo on every resize event (dozens
+    // while rotating / dragging a window edge).
+    let resizeTimer: number | undefined;
+    const onResize = () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(
+        () => syncDock('auto'),
+        RESIZE_DEBOUNCE_MS,
+      );
+    };
     window.addEventListener('resize', onResize);
     return () => {
       window.cancelAnimationFrame(raf);
+      window.clearTimeout(resizeTimer);
       window.removeEventListener('resize', onResize);
     };
   }, [activeCategoryId, viewMode]);
@@ -383,6 +470,25 @@ export default function App() {
     },
     [categoryItems.length],
   );
+
+  // Stable callbacks for RotaryTableStage (P1-2): the stage is memoized,
+  // and fresh inline closures on every render defeated that memo on every
+  // item step. Both use only stable setState functions, so the deps are
+  // empty. (The component memo itself lives in RotaryTableStage.tsx.)
+  const handleSelectIndex = useCallback((idx: number) => {
+    setActiveItemIndex(idx);
+  }, []);
+
+  const handleExitOverviewToIndex = useCallback((idx: number) => {
+    setActiveItemIndex(idx);
+    setOverviewMode(false);
+  }, []);
+
+  // Stable callback for SimpleMenuView (P1-2): the card row is memoized,
+  // and a fresh inline closure on every App render defeated that memo.
+  const handleSelectItemDetails = useCallback((item: MenuItem) => {
+    setDrawerItem(item);
+  }, []);
 
   const handleJumpToTableItem = useCallback((item: MenuItem) => {
     const itemsInCat = MENU_ITEMS.filter(
@@ -514,9 +620,25 @@ export default function App() {
 
   return (
     <div
-      className="relative min-h-screen w-full overflow-x-hidden text-[#2F321C] transition-[background-color] duration-400 ease-out"
-      style={{ backgroundColor: backdropHex }}
+      className="relative min-h-screen w-full overflow-x-hidden text-[#2F321C]"
+      style={{ backgroundColor: bgBase }}
     >
+      {/* Background tone crossfade layer (P1-6): opacity-only, driven by
+      the effect above. First child + no z-index, so every positioned piece
+      of table content paints above it; pointer-events-none + aria-hidden
+      so it never intercepts taps or screen readers. Mounted only in table
+      view: the simple menu's content is in-flow (non-positioned), so a
+      positioned overlay would paint ABOVE it — and unmounting here also
+      avoids a 400ms fade-out veil if the user switches views mid-fade. */}
+      {viewMode === 'table' && (
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 transition-opacity duration-400 ease-out ${
+            bgOverlay.on ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={{ backgroundColor: bgOverlay.hex }}
+        />
+      )}
       {splash !== 'gone' && <SplashScreen leaving={splash === 'leaving'} />}
       {/* View-switch loading overlay: rendered at App root level, OUTSIDE
       the `.eyvan-view-enter` div — an ancestor with opacity < 1 becomes the
@@ -631,7 +753,7 @@ export default function App() {
               selectedCategory={simpleCategoryId}
               onSelectCategory={setSimpleCategoryId}
               selectedBeans={selectedBeans}
-              onSelectItemDetails={(item) => setDrawerItem(item)}
+              onSelectItemDetails={handleSelectItemDetails}
               onInspectOnTable={handleJumpToTableItem}
               onOpenMobileCategories={() => setMobileCatsOpen(true)}
               onReady={handleSimpleMenuReady}
@@ -643,7 +765,7 @@ export default function App() {
           {/* Mobile Always-Visible Top Category Bar (directly below header — never hidden by mobile browser toolbars!) */}
           <nav
             aria-label="انتخاب دسته‌بندی منو در موبایل"
-            className="fixed inset-x-0 top-[56px] z-30 border-b border-[rgba(107,112,67,0.1)] bg-[#F8F7F2]/97 px-2.5 py-1.5 lg:hidden"
+            className="fixed inset-x-0 top-[56px] z-30 border-b border-[rgba(107,112,67,0.1)] bg-[#F8F7F2]/97 px-2.5 py-1.5 md:top-16 lg:hidden"
           >
             <div className="flex items-center gap-1.5">
               <button
@@ -693,23 +815,33 @@ export default function App() {
             overviewMode={overviewMode}
             cameraAngle={cameraAngle}
             drawerOpen={Boolean(drawerItem)}
-            onSelectIndex={(idx) => setActiveItemIndex(idx)}
+            onSelectIndex={handleSelectIndex}
             onStep={handleStepItem}
-            onExitOverviewToIndex={(idx) => {
-              setActiveItemIndex(idx);
-              setOverviewMode(false);
-            }}
+            onExitOverviewToIndex={handleExitOverviewToIndex}
             onChangeCameraAngle={setCameraAngle}
           />
 
-          {/* Mobile Soft Bottom Scrim for Ultra-Crisp Persian Text Legibility */}
+          {/* Mobile Soft Bottom Scrim for Ultra-Crisp Persian Text Legibility.
+          Two heights crossfade (opacity-only) instead of one layer snapping
+          h-[54%] <-> h-[47%] on camera toggle — the snap moved the fade's
+          top edge ~7% of the viewport instantly while the camera glided
+          600ms. Opacity-only fades are kept under prefers-reduced-motion
+          (see index.css), so no motion guard is needed. */}
           {!overviewMode && (
-            <div
-              aria-hidden="true"
-              className={`pointer-events-none fixed inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[#F8F7F2] via-[#F8F7F2]/92 to-transparent lg:hidden ${
-                cameraAngle === 'front' ? 'h-[47%]' : 'h-[54%]'
-              }`}
-            />
+            <>
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none fixed inset-x-0 bottom-0 z-10 h-[54%] bg-gradient-to-t from-[#F8F7F2] via-[#F8F7F2]/92 to-transparent transition-opacity duration-500 ease-out lg:hidden ${
+                  cameraAngle === 'front' ? 'opacity-0' : 'opacity-100'
+                }`}
+              />
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none fixed inset-x-0 bottom-0 z-10 h-[47%] bg-gradient-to-t from-[#F8F7F2] via-[#F8F7F2]/92 to-transparent transition-opacity duration-500 ease-out lg:hidden ${
+                  cameraAngle === 'front' ? 'opacity-100' : 'opacity-0'
+                }`}
+              />
+            </>
           )}
 
           {/* Overview Mode Top Exit Bar */}

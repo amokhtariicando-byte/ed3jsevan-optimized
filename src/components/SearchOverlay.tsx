@@ -8,7 +8,7 @@ import {
   getDefaultBean,
   toPersianDigits,
 } from '../utils/menuLogic';
-import { FadeInImage } from './FadeInImage';
+import { FadeInImage, toThumbSrc } from './FadeInImage';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -141,8 +141,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-[#EFECE6]">
                           <FadeInImage
-                            src={item.image}
+                            src={toThumbSrc(item.image)}
+                            fallbackSrc={item.image}
                             alt={item.name}
+                            width={256}
+                            height={256}
                             loading="lazy"
                             decoding="async"
                             referrerPolicy="no-referrer"
