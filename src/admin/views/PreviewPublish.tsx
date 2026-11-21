@@ -150,7 +150,11 @@ export function PreviewPublishView() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <Badge variant={publishState?.hasDraft ? 'warning' : 'success'}>
-              {publishState?.hasDraft ? 'پیش‌نویس منتشرنشده' : 'منتشر شده'}
+              {publishState?.hasDraft
+                ? 'پیش‌نویس منتشرنشده'
+                : publishState?.lastPublishedAt
+                  ? 'منتشر شده'
+                  : 'بدون تغییر'}
             </Badge>
             <span className="text-muted-foreground">
               آخرین انتشار:{' '}

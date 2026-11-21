@@ -127,7 +127,11 @@ export function DashboardView() {
           <div className="flex flex-wrap items-center gap-3">
             {publishState && (
               <Badge variant={publishState.hasDraft ? 'warning' : 'success'}>
-                {publishState.hasDraft ? 'پیش‌نویس منتشرنشده' : 'منتشر شده'}
+                {publishState.hasDraft
+                  ? 'پیش‌نویس منتشرنشده'
+                  : publishState.lastPublishedAt
+                    ? 'منتشر شده'
+                    : 'بدون تغییر'}
               </Badge>
             )}
             <span className="text-sm text-muted-foreground">
