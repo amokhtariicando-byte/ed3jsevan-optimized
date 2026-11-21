@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { CategoryId, MENU_CATEGORIES, MENU_ITEMS } from '../data/menuData';
-import { toPersianDigits } from '../utils/menuLogic';
+import { useBodyScrollLock } from '../utils/motion';
+import { localizeCategory, useLanguage } from '../i18n/LanguageContext';
 
 interface MobileCategorySheetProps {
   open: boolean;
@@ -22,6 +23,17 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
     'closed' | 'open' | 'closing'
   >('closed');
   const closeTimerRef = useRef<number | undefined>(undefined);
+  const { lang, t, formatDigits } = useLanguage();
+  useBodyScrollLock(open);
+  const localizedCategories = useMemo(() => MENU_CATEGORIES.map((c) => localizeCategory(c, lang)), [lang]);
+
+  const categoryCounts = useMemo(() => {
+    const map = new Map<CategoryId, number>();
+    for (const item of MENU_ITEMS) {
+      map.set(item.categoryId, (map.get(item.categoryId) ?? 0) + 1);
+    }
+    return map;
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -64,7 +76,7 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
       }}
     >
       <div
-        className="eyvan-overlay-panel eyvan-sheet-panel w-full max-w-[540px] rounded-t-[20px] border-t border-x border-[rgba(107,112,67,0.14)] bg-[#FFFFFF] px-5 pt-4 pb-6 shadow-2xl"
+        className="eyvan-overlay-panel eyvan-sheet-panel w-full max-w-[540px] rounded-t-[20px] border-t border-x border-[rgba(107,112,67,0.14)] bg-[#FFFFFF] px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl"
         data-state={panelState === 'open' ? 'open' : 'closed'}
       >
         <div className="mx-auto mb-3.5 h-1 w-10 rounded-full bg-[rgba(107,112,67,0.18)]" />
@@ -75,10 +87,10 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
               id="mobile-categories-title"
               className="text-base font-semibold text-[#2F321C]"
             >
-              دسته‌بندی‌های منوی ایوان
+              {t.categoriesTitle}
             </h2>
             <p className="mt-0.5 text-xs text-[#78716C]">
-              انتخاب سریع از میان {toPersianDigits(MENU_CATEGORIES.length)} بخش منو
+              {t.quickSelectPrefix} {formatDigits(MENU_CATEGORIES.length)} {t.quickSelectSuffix}
             </p>
           </div>
           <button
@@ -106,9 +118,9 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
               }`}
             >
               <div>
-                <p className="text-sm font-medium">همه بخش‌های منو</p>
+                <p className="text-sm font-medium">{t.allSections}</p>
                 <p className="mt-0.5 text-[11px] text-[#78716C]">
-                  نمایش یکپارچه {toPersianDigits(MENU_ITEMS.length)} نوشیدنی و بخش‌های به‌زودی
+                  {t.allSectionsSubtitlePrefix} {formatDigits(MENU_ITEMS.length)} {t.allSectionsSubtitleSuffix}
                 </p>
               </div>
               {activeCategoryId === 'all' && (
@@ -117,11 +129,9 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
             </button>
           )}
 
-          {MENU_CATEGORIES.map((category) => {
+          {localizedCategories.map((category) => {
             const isActive = activeCategoryId === category.id;
-            const count = MENU_ITEMS.filter(
-              (item) => item.categoryId === category.id,
-            ).length;
+            const count = categoryCounts.get(category.id) ?? 0;
 
             return (
               <button
@@ -154,8 +164,8 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
                   }`}
                 >
                   {category.comingSoon
-                    ? 'به‌زودی'
-                    : `${toPersianDigits(count)} آیتم`}
+                    ? t.comingSoon
+                    : `${formatDigits(count)} ${t.itemCountShort}`}
                 </span>
               </button>
             );

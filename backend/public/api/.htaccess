@@ -1,0 +1,27 @@
+# Eyvan menu API — deployed to public_html/api/ alongside index.php.
+# Rewrites every /api/* request to the front controller and keeps API
+# responses uncached. Requires mod_rewrite + mod_headers (standard on
+# cPanel Apache/LiteSpeed).
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Pass the Authorization header through to PHP (Apache drops it by
+  # default, which would break Bearer auth).
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  # Everything under /api/ goes to the front controller.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+<IfModule mod_headers.c>
+  # API responses are never cached (menu data, auth, admin).
+  Header set Cache-Control "no-store"
+</IfModule>
+
+# Never serve the deploy-time config directly.
+<Files "config.php">
+  Require all denied
+</Files>

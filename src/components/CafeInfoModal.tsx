@@ -3,6 +3,8 @@ import { Check, Clock, Copy, ExternalLink, MapPin, Thermometer, X } from 'lucide
 import { CAFE_INFO } from '../data/menuData';
 import { EyvanLogo } from './EyvanLogo';
 import { InstagramIcon } from './InstagramIcon';
+import { useBodyScrollLock } from '../utils/motion';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface CafeInfoModalProps {
   open: boolean;
@@ -18,6 +20,8 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
     'closed' | 'open' | 'closing'
   >('closed');
   const closeTimerRef = useRef<number | undefined>(undefined);
+  const { t, cafeInfo } = useLanguage();
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (!open) return;
@@ -75,7 +79,7 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
             id="cafe-info-title"
             className="text-lg font-semibold text-[#2F321C]"
           >
-            مشخصات و نشانی کافه ایوان
+            {t.cafeInfoModalTitle}
           </h2>
           <button
             type="button"
@@ -92,8 +96,7 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
           <div className="flex flex-col items-center rounded-[14px] border border-[rgba(107,112,67,0.08)] bg-[#F8F7F2] py-6">
             <EyvanLogo variant="full" tone="gold" />
             <p className="mt-3 max-w-sm text-center text-xs leading-6 text-[#78716C]">
-              فضای آرام، قهوه تخصصی با انتخاب دانه ۵۰/۵۰ یا ۱۰۰٪ عربیکا، دمنوش‌های
-              ایرانی و به‌زودی آشپزخانه کامل رستوران ایوان
+              {cafeInfo.tagline}
             </p>
           </div>
 
@@ -106,10 +109,10 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
               />
               <div>
                 <h3 className="text-sm font-medium text-[#2F321C]">
-                  نشانی و موقعیت مکانی
+                  {t.addressHeading}
                 </h3>
                 <p className="mt-1 text-xs leading-6 text-[#78716C]">
-                  {CAFE_INFO.addressStatus}
+                  {cafeInfo.addressStatus}
                 </p>
               </div>
             </div>
@@ -121,10 +124,10 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
               />
               <div>
                 <h3 className="text-sm font-medium text-[#2F321C]">
-                  ساعات پذیرایی
+                  {t.hoursHeading}
                 </h3>
                 <p className="mt-1 tabular-fa text-xs text-[#78716C]">
-                  {CAFE_INFO.hours}
+                  {cafeInfo.hours}
                 </p>
               </div>
             </div>
@@ -136,10 +139,10 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
               />
               <div>
                 <h3 className="text-sm font-medium text-[#2F321C]">
-                  استاندارد سرو بار گرم
+                  {t.hotBarStandardHeading}
                 </h3>
                 <p className="mt-1 text-xs leading-6 text-[#78716C]">
-                  {CAFE_INFO.milkTempNote}
+                  {cafeInfo.milkTempNote}
                 </p>
               </div>
             </div>
@@ -176,8 +179,8 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
               <circle cx="240" cy="72" r="5" fill="#B5945B" />
             </svg>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#78716C]">
-              <span>{CAFE_INFO.coordinatesLabel}</span>
-              <span className="text-[#A8A29E]">{CAFE_INFO.paymentNote}</span>
+              <span>{cafeInfo.coordinatesLabel}</span>
+              <span className="text-[#A8A29E]">{cafeInfo.paymentNote}</span>
             </div>
           </div>
 
@@ -189,7 +192,7 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
               </span>
               <div>
                 <div className="text-sm font-medium text-[#2F321C]">
-                  صفحه رسمی اینستاگرام ایوان
+                  {t.officialInstagram}
                 </div>
                 <div dir="ltr" className="mt-0.5 text-right text-xs text-[#6B7043]">
                   {CAFE_INFO.instagramHandle}
@@ -206,12 +209,12 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
                 {copied ? (
                   <>
                     <Check className="h-3.5 w-3.5 text-[#9AA16A]" strokeWidth={1.75} />
-                    <span>کپی شد</span>
+                    <span>{t.copied}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    <span>کپی لینک</span>
+                    <span>{t.copyLink}</span>
                   </>
                 )}
               </button>
@@ -221,7 +224,7 @@ export const CafeInfoModal: React.FC<CafeInfoModalProps> = ({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#6B7043] px-3.5 py-2 text-xs font-medium text-[#F8F7F2] transition-colors hover:bg-[#4F5330]"
               >
-                <span>مشاهده پیج</span>
+                <span>{t.visitPage}</span>
                 <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.6} />
               </a>
             </div>

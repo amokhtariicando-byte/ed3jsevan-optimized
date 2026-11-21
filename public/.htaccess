@@ -23,6 +23,13 @@
   <FilesMatch "\.(js|css|woff2)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
+  # Service worker: must NEVER be cached — browsers only pick up worker
+  # updates (including the kill-switch in sw.js) when they can re-fetch it.
+  # This block must come AFTER the hashed-assets rule above, which would
+  # otherwise match sw.js too (it ends in .js); the later rule wins.
+  <FilesMatch "^sw\.js$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
   # Images: filenames are NOT content-hashed (see audit §1.2), so long cache
   # but NOT immutable — a replaced photo must become visible within the TTL.
   # (Once the PHP backend gives uploads unique/hashed filenames, this can

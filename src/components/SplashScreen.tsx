@@ -1,10 +1,10 @@
 import React from 'react';
 
 /**
- * Splash / loading screen, taken from the Eyvan reference page: the arch logo
- * draws itself (stroke animation), steam floats above the cup, and the
- * "EYVAN CAFE & RESTAURANT" line fades up. Full variant covers the screen on
- * first load; compact variant is the Suspense fallback while a lazy chunk loads.
+ * Splash / loading screen: the arch logo draws itself (stroke animation),
+ * steam floats above the cup, and the "EYVAN CAFE & RESTAURANT" line fades up.
+ * Uses a zero-blur radial gradient halo instead of animated blur-2xl so
+ * initial load stays 60fps on low-end mobile GPUs.
  */
 
 const EyvanSplashLogo: React.FC<{ animated: boolean }> = ({ animated }) => (
@@ -116,9 +116,7 @@ const EyvanSplashLogo: React.FC<{ animated: boolean }> = ({ animated }) => (
       strokeLinecap="round"
     />
 
-    {/* Persian wordmark «ایوان» — weight 600 is the heaviest Vazirmatn
-        weight shipped (400/500/600); 900 would render as synthesized
-        faux-bold (P2-7). */}
+    {/* Persian wordmark «ایوان» */}
     <text
       x="100"
       y="232"
@@ -131,7 +129,7 @@ const EyvanSplashLogo: React.FC<{ animated: boolean }> = ({ animated }) => (
     >
       ایوان
     </text>
-    {/* Subtitle «کافه و رستوران» — 600, same reason as above (P2-7). */}
+    {/* Subtitle «کافه و رستوران» */}
     <text
       x="100"
       y="254"
@@ -157,9 +155,6 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
   compact = false,
 }) => {
   if (compact) {
-    // Fully opaque on purpose: a translucent overlay lets the collapsed
-    // page (header + footer) ghost through during a view switch, while the
-    // lazy chunk is still loading.
     return (
       <div
         className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F8F7F2]"
@@ -175,21 +170,28 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#F8F7F2] transition-[opacity,transform] duration-400 ease-out ${
+      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#F8F7F2] transition-[opacity,transform] duration-400 ease-out will-change-[opacity,transform] ${
         leaving ? 'pointer-events-none scale-105 opacity-0' : ''
       }`}
       role="status"
       aria-label="در حال بارگذاری منوی کافه ایوان"
     >
       <div className="relative flex flex-col items-center">
-        {/* Depth halo behind the logo */}
-        <div className="absolute -inset-8 animate-pulse rounded-full bg-[#6B7043]/10 blur-2xl" />
+        {/* Zero-blur soft depth halo behind the logo (replaces expensive blur-2xl) */}
+        <div
+          aria-hidden="true"
+          className="eyvan-soft-pulse pointer-events-none absolute -inset-14 rounded-full"
+          style={{
+            background:
+              'radial-gradient(circle, rgba(107, 112, 67, 0.14) 0%, rgba(107, 112, 67, 0.05) 45%, rgba(107, 112, 67, 0) 72%)',
+          }}
+        />
         <div className="relative h-44 w-32 text-[#6B7043]">
           <EyvanSplashLogo animated />
         </div>
         <div
           className="eyvan-fade-up mt-4 flex items-center gap-2 text-xs tracking-widest text-[#6B7043]/80 uppercase"
-          style={{ animationDelay: '0.15s' }}
+          style={{ animationDelay: '0.12s' }}
         >
           <span className="h-[1px] w-5 bg-current opacity-50" />
           <span>EYVAN CAFE &amp; RESTAURANT</span>

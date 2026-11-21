@@ -1,64 +1,103 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { prefersReducedMotion } from '../utils/motion';
 
 /**
- * FadeInImage — onLoad-driven opacity fade (P0-4) for customer images.
+ * FadeInImage — onLoad-driven opacity fade (zero-flash, minimal re-renders).
  *
- * Images used to pop in with no transition (0 onLoad handlers anywhere).
- * This component starts each image at opacity 0 and fades it in over
- * 200ms once it has loaded. Opacity ONLY — never a transform transition,
- * so it is safe on rAF-driven stage elements (paintFrame in
- * RotaryTableStage writes opacity/transform to the plate buttons and seat
- * wrappers, never to the <img> elements themselves, so this fade never
- * fights a per-frame write).
- *
- * The fade runs ONCE per image load, never again on remount, item step, or
- * category switch: `loadedSrcs` remembers every src that has finished
- * loading anywhere in the app, and a src in that set renders at full
- * opacity immediately. Reduced-motion users skip the fade entirely.
- *
- * Attribute passthrough (P2-8): the props extend
- * `React.ImgHTMLAttributes`, so `width`, `height`, `loading`,
- * `fetchPriority`, `decoding`, `referrerPolicy`, `draggable`, etc. pass
- * straight through to the <img>. Callers SHOULD pass `width`/`height`
- * (intrinsic pixel size of `src`) to reserve the aspect ratio and prevent
- * layout shift, and may pass `fetchPriority="high"` for hero images
- * (React 19 prop name — camelCase).
- *
- * Fallback (P1-3): pass `fallbackSrc` to swap to a backup image if `src`
- * fails to load — e.g. the full-size photo when a 256px thumb 404s because
- * the thumbs haven't been uploaded yet. The swap happens AT MOST ONCE per
- * requested src: if the fallback also errors, the caller's `onError` runs
- * (if any) and no further swap is attempted, so an error can never loop.
+ * - `loadedSrcs` remembers every src that has finished loading anywhere in
+ *   the app so remounts, item steps, and category switches render immediately
+ *   at opacity 1 with zero extra renders.
+ * - Fallback swaps at most once per requested `src` without chained effects.
  */
 
 const loadedSrcs = new Set<string>();
+const decodedSrcs = new Set<string>();
 
-const FADE_MS = 200;
+const FADE_MS = 180;
 
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  );
+/**
+ * Preload and pre-decode an image off the main animation path so the first
+ * frame it enters the viewport (e.g. entering 3D Front View) never drops frames.
+ */
+export function preloadAndDecodeImage(src: string): void {
+  if (!src || decodedSrcs.has(src)) return;
+  decodedSrcs.add(src);
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = src;
+  const markLoaded = () => {
+    loadedSrcs.add(src);
+  };
+  if (typeof img.decode === 'function') {
+    img.decode().then(markLoaded).catch(() => {
+      // Fallback: if decode rejects (e.g. aborted or unsupported), allow retry later
+      decodedSrcs.delete(src);
+    });
+  } else {
+    img.onload = markLoaded;
+  }
 }
 
 /**
- * Maps a full-size menu photo URL to its 256px thumb variant (P1-3):
+ * Maps a full-size menu photo URL to its 256px thumb variant:
  * `src/assets/images/<name>.webp` → `src/assets/images/thumbs/<name>.webp`.
- * Thumbs keep the source basename; the front thumbs are 256×191 and the
- * topdown thumbs 256×256. Returns the input unchanged for anything that
- * isn't a flat file directly under `src/assets/images/` (absolute/CDN
- * URLs, already-a-thumb paths, and nested assets such as `cutouts/`
- * pass through untouched), so the mapping is idempotent and can never
- * mangle a URL it doesn't recognise.
  */
 export function toThumbSrc(src: string): string {
   const prefix = 'src/assets/images/';
   if (!src.startsWith(prefix)) return src;
   const rest = src.slice(prefix.length);
-  // Nested path (cutouts/, thumbs/, …) — not a flat full-size photo.
   if (rest.includes('/')) return src;
   return `${prefix}thumbs/${rest}`;
+}
+
+/**
+ * Maps a desktop cutout image URL to its mobile-sized WebP variant:
+ * `src/assets/images/cutouts/<name>.webp` → `src/assets/images/cutouts/mobile/<name>.webp`.
+ * Passes through external/backend URLs unchanged so backend uploads keep working.
+ */
+export function toMobileCutoutSrc(src: string): string {
+  const prefix = 'src/assets/images/cutouts/';
+  if (!src.startsWith(prefix)) return src;
+  const rest = src.slice(prefix.length);
+  if (rest.includes('/')) return src;
+  return `${prefix}mobile/${rest}`;
+}
+
+/**
+ * Returns true if the URL is one of our pre-baked RGBA topdown plates
+ * (which already have brightness/contrast/radial-alpha baked into the WebP
+ * so the GPU doesn't need live mix-blend-mode + filter + mask-image).
+ */
+export function isPrebakedTopdownSrc(src: string): boolean {
+  return (
+    src.startsWith('src/assets/images/topdown_') ||
+    src.startsWith('src/assets/images/thumbs/topdown_')
+  );
+}
+
+/** Intrinsic desktop dimensions of bundled cutouts to prevent layout shift. */
+const CUTOUT_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  'berry_shake.webp': { width: 199, height: 540 },
+  'blue_spirulina.webp': { width: 190, height: 540 },
+  'choco_shake.webp': { width: 199, height: 540 },
+  'green_mojito.webp': { width: 247, height: 540 },
+  'hot_espresso.webp': { width: 688, height: 513 },
+  'hot_latte.webp': { width: 806, height: 511 },
+  'hot_mocha.webp': { width: 806, height: 511 },
+  'iced_espresso.webp': { width: 190, height: 540 },
+  'iced_latte.webp': { width: 190, height: 540 },
+  'matcha_latte.webp': { width: 190, height: 540 },
+  'persian_cold.webp': { width: 247, height: 540 },
+  'persian_tea.webp': { width: 603, height: 514 },
+  'red_mocktail.webp': { width: 254, height: 540 },
+  'strawberry_matcha.webp': { width: 190, height: 540 },
+};
+
+export function getCutoutDimensions(
+  src: string,
+): { width: number; height: number } | undefined {
+  const filename = src.split('/').pop();
+  return filename ? CUTOUT_DIMENSIONS[filename] : undefined;
 }
 
 interface FadeInImageProps
@@ -84,49 +123,39 @@ export const FadeInImage: React.FC<FadeInImageProps> = ({
   onError,
   ...rest
 }) => {
-  // The src actually rendered: `src` until it errors, then `fallbackSrc`.
-  const [currentSrc, setCurrentSrc] = useState(src);
-  // Whether the one allowed fallback swap has already been spent.
-  const [fellBack, setFellBack] = useState(false);
-  const [loaded, setLoaded] = useState<boolean>(
-    () => loadedSrcs.has(src) || prefersReducedMotion(),
+  // Track which requested `src` has already fallen back (single-state, zero effect cascade)
+  const [failedForSrc, setFailedForSrc] = useState<string | null>(null);
+  const currentSrc =
+    failedForSrc === src && fallbackSrc && fallbackSrc !== src
+      ? fallbackSrc
+      : src;
+
+  const isAlreadyLoaded =
+    loadedSrcs.has(currentSrc) || prefersReducedMotion();
+  const [loadedSrcState, setLoadedSrcState] = useState<string | null>(
+    isAlreadyLoaded ? currentSrc : null,
   );
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // A new requested src resets the fallback: the one-swap budget is
-  // per-src, so a fresh image gets a fresh fallback attempt.
-  useEffect(() => {
-    setCurrentSrc(src);
-    setFellBack(false);
-  }, [src]);
+  const loaded = isAlreadyLoaded || loadedSrcState === currentSrc;
 
   useEffect(() => {
-    if (loadedSrcs.has(currentSrc) || prefersReducedMotion()) {
-      setLoaded(true);
-      return;
-    }
-    setLoaded(false);
-    // A cached image can finish loading before React attaches onLoad; the
-    // `complete` check catches those so they never sit invisible.
+    if (loaded) return;
     const el = imgRef.current;
     if (el && el.complete && el.naturalWidth > 0) {
       loadedSrcs.add(currentSrc);
-      setLoaded(true);
+      setLoadedSrcState(currentSrc);
     }
-  }, [currentSrc]);
+  }, [currentSrc, loaded]);
 
   const handleLoad = () => {
     loadedSrcs.add(currentSrc);
-    setLoaded(true);
+    setLoadedSrcState(currentSrc);
   };
 
   const handleError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    // Swap at most once: after the fallback, a second error goes to the
-    // caller's onError (or nowhere) — never back to the failed src, so
-    // this can never ping-pong between two broken URLs.
-    if (fallbackSrc && !fellBack && currentSrc !== fallbackSrc) {
-      setFellBack(true);
-      setCurrentSrc(fallbackSrc);
+    if (fallbackSrc && failedForSrc !== src && currentSrc !== fallbackSrc) {
+      setFailedForSrc(src);
       return;
     }
     onError?.(e);
@@ -142,10 +171,7 @@ export const FadeInImage: React.FC<FadeInImageProps> = ({
       className={className}
       style={{
         opacity: loaded ? 1 : 0,
-        transition: `opacity ${FADE_MS}ms ease-out`,
-        // A caller-supplied `transition` replaces the fade-only one — used
-        // by card thumbs, whose hover scale needs its transform transition
-        // carried in the same property.
+        transition: loaded ? undefined : `opacity ${FADE_MS}ms ease-out`,
         ...style,
       }}
       {...rest}

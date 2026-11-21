@@ -2,18 +2,17 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Thermometer, X } from 'lucide-react';
 import {
   BeanType,
-  CAFE_INFO,
   MenuItem,
   SYRUP_OPTIONS,
 } from '../data/menuData';
 import {
   calculateItemPrice,
-  formatToman,
   getDefaultBean,
   getSyrupById,
-  toPersianDigits,
 } from '../utils/menuLogic';
 import { FadeInImage } from './FadeInImage';
+import { useBodyScrollLock } from '../utils/motion';
+import { localizeSyrup, useLanguage } from '../i18n/LanguageContext';
 
 interface DrinkCustomizeDrawerProps {
   item: MenuItem | null;
@@ -30,6 +29,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
   onBeanChange,
   onClose,
 }) => {
+  const { lang, t, cafeInfo, formatDigits, formatPrice } = useLanguage();
   const [syrupId, setSyrupId] = useState<string | null>(null);
   const [milkTemp, setMilkTemp] = useState<'standard' | 'extra-hot'>(
     'standard',
@@ -38,6 +38,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
     'closed' | 'open' | 'closing'
   >('closed');
   const closeTimerRef = useRef<number | undefined>(undefined);
+  useBodyScrollLock(Boolean(item));
 
   useEffect(() => {
     if (!item) return;
@@ -143,11 +144,11 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
             <div>
               <div className="mb-2.5 flex items-center justify-between">
                 <span className="text-sm font-medium text-[#2F321C]">
-                  انتخاب نوع دانه قهوه
+                  {t.selectCoffeeBean}
                 </span>
                 {isArabicaOnly && (
                   <span className="text-xs text-[#6B7043]">
-                    سرو انحصاری با ۱۰۰٪ عربیکا
+                    {t.arabicaExclusiveLong}
                   </span>
                 )}
               </div>
@@ -164,10 +165,10 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                     }`}
                   >
                     <span className="text-xs text-[#78716C]">
-                      ترکیب ۵۰٪/۵۰٪
+                      {t.blend5050Full}
                     </span>
                     <span className="tabular-fa mt-1 text-base font-medium text-[#6B7043]">
-                      {formatToman(item.priceBlend50!)}
+                      {formatPrice(item.priceBlend50!)}
                     </span>
                   </button>
 
@@ -180,19 +181,19 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                         : 'border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] text-[#78716C] hover:border-[rgba(107,112,67,0.22)]'
                     }`}
                   >
-                    <span className="text-xs text-[#78716C]">۱۰۰٪ عربیکا</span>
+                    <span className="text-xs text-[#78716C]">{t.arabica100}</span>
                     <span className="tabular-fa mt-1 text-base font-medium text-[#6B7043]">
-                      {formatToman(item.priceArabica100!)}
+                      {formatPrice(item.priceArabica100!)}
                     </span>
                   </button>
                 </div>
               ) : (
                 <div className="flex items-center justify-between rounded-[12px] border border-[#B5945B]/45 bg-[#FFFFFF] px-4 py-3">
                   <span className="text-sm text-[#2F321C]">
-                    دانه ۱۰۰٪ عربیکا تخصصی
+                    دانه {t.arabica100} تخصصی
                   </span>
                   <span className="tabular-fa text-base font-medium text-[#6B7043]">
-                    {formatToman(item.priceArabica100!)}
+                    {formatPrice(item.priceArabica100!)}
                   </span>
                 </div>
               )}
@@ -204,10 +205,10 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
             <div>
               <div className="mb-2.5 flex items-center justify-between">
                 <span className="text-sm font-medium text-[#2F321C]">
-                  انتخاب سیروپ طعم‌دار
+                  {t.selectSyrup}
                 </span>
                 <span className="tabular-fa text-xs text-[#78716C]">
-                  اختیاری · +{toPersianDigits(SYRUP_OPTIONS[0].price)} تومان
+                  {t.optionalPlus}{formatDigits(SYRUP_OPTIONS[0].price)} {t.currencyUnit}
                 </span>
               </div>
 
@@ -221,7 +222,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                       : 'border-[rgba(107,112,67,0.09)] bg-[#FFFFFF] text-[#78716C] hover:border-[rgba(107,112,67,0.22)]'
                   }`}
                 >
-                  <span>بدون سیروپ</span>
+                  <span>{t.noSyrup}</span>
                   {syrupId === null && (
                     <Check
                       className="h-3.5 w-3.5 text-[#6B7043]"
@@ -230,7 +231,8 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                   )}
                 </button>
 
-                {SYRUP_OPTIONS.map((syrup) => {
+                {SYRUP_OPTIONS.map((rawSyrup) => {
+                  const syrup = localizeSyrup(rawSyrup, lang);
                   const active = syrupId === syrup.id;
                   return (
                     <button
@@ -243,9 +245,9 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                           : 'border-[rgba(107,112,67,0.09)] bg-[#FFFFFF] text-[#78716C] hover:border-[rgba(107,112,67,0.22)]'
                       }`}
                     >
-                      <span>سیروپ {syrup.name}</span>
+                      <span>{t.syrupPrefix} {syrup.name}</span>
                       <span className="tabular-fa text-[11px] text-[#6B7043]">
-                        +{toPersianDigits(syrup.price)}
+                        +{formatDigits(syrup.price)}
                       </span>
                     </button>
                   );
@@ -258,7 +260,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
           {item.supportsMilkTemp && (
             <div>
               <span className="mb-2.5 block text-sm font-medium text-[#2F321C]">
-                دمای شیر
+                {t.milkTemp}
               </span>
               <div className="grid grid-cols-2 gap-2.5">
                 <button
@@ -270,7 +272,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                       : 'border-[rgba(107,112,67,0.09)] bg-[#FFFFFF] text-[#78716C]'
                   }`}
                 >
-                  استاندارد (۶۰ تا ۷۰ درجه)
+                  {t.milkTempStandard}
                 </button>
                 <button
                   type="button"
@@ -281,7 +283,7 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                       : 'border-[rgba(107,112,67,0.09)] bg-[#FFFFFF] text-[#78716C]'
                   }`}
                 >
-                  داغ‌تر از استاندارد
+                  {t.milkTempExtraHot}
                 </button>
               </div>
               <div className="mt-2.5 flex items-start gap-2 text-xs leading-6 text-[#78716C]">
@@ -289,27 +291,27 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
                   className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#6B7043]"
                   strokeWidth={1.5}
                 />
-                <span>{CAFE_INFO.milkTempNote}</span>
+                <span>{cafeInfo.milkTempNote}</span>
               </div>
             </div>
           )}
         </div>
 
         {/* Sticky Footer: Live Final Price + Cashier Payment Notice (No Cart / No Waiter Card) */}
-        <div className="border-t border-[rgba(107,112,67,0.09)] bg-[#F8F7F2] px-6 py-4">
+        <div className="border-t border-[rgba(107,112,67,0.09)] bg-[#F8F7F2] px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="flex items-center justify-between gap-4">
             <div>
               <span className="block text-xs text-[#78716C]">
-                قیمت نهایی با انتخاب فعلی
+                {t.finalPriceLabel}
               </span>
               {syrupId && (
                 <span className="mt-0.5 block text-[11px] text-[#9AA16A]">
-                  شامل {activeSyrup.name}
+                  {t.includesPrefix} {t.syrupPrefix} {localizeSyrup({ id: activeSyrup.id, name: activeSyrup.name.replace(/^سیروپ\s+/, ""), price: activeSyrup.price }, lang).name}
                 </span>
               )}
             </div>
             <span className="tabular-fa text-2xl font-semibold text-[#6B7043]">
-              {formatToman(unitPrice)}
+              {formatPrice(unitPrice)}
             </span>
           </div>
 
@@ -318,11 +320,11 @@ export const DrinkCustomizeDrawer: React.FC<DrinkCustomizeDrawerProps> = ({
             onClick={handleClose}
             className="mt-3.5 w-full rounded-[10px] border border-[rgba(181,148,91,0.42)] bg-[#FFFFFF] px-4 py-2.5 text-sm font-medium text-[#2F321C] transition-colors hover:border-[#B5945B] hover:bg-[#E8EAD9]"
           >
-            بستن جزئیات
+            {t.closeDetails}
           </button>
 
           <p className="mt-2.5 text-center text-[11px] text-[#78716C]">
-            {CAFE_INFO.paymentNote}
+            {cafeInfo.paymentNote}
           </p>
         </div>
       </aside>

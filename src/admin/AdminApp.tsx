@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import {
   ArrowRight,
   CupSoda,
@@ -29,17 +29,41 @@ import {
 } from '../components/ui/card';
 import { adminApi } from './api';
 import type { PublishState } from './types';
-import { DashboardView } from './views/Dashboard';
-import { ItemsView } from './views/Items';
-import { ItemEditorView } from './views/ItemEditor';
-import { BulkPricesView } from './views/BulkPrices';
-import { CategoriesView } from './views/Categories';
-import { FeaturedView } from './views/Featured';
-import { SyrupsView } from './views/Syrups';
-import { CafeInfoView } from './views/CafeInfo';
-import { QrCodeView } from './views/QrCode';
-import { PreviewPublishView } from './views/PreviewPublish';
-import { SettingsView } from './views/Settings';
+const DashboardView = lazy(() =>
+  import('./views/Dashboard').then((m) => ({ default: m.DashboardView })),
+);
+const ItemsView = lazy(() =>
+  import('./views/Items').then((m) => ({ default: m.ItemsView })),
+);
+const ItemEditorView = lazy(() =>
+  import('./views/ItemEditor').then((m) => ({ default: m.ItemEditorView })),
+);
+const BulkPricesView = lazy(() =>
+  import('./views/BulkPrices').then((m) => ({ default: m.BulkPricesView })),
+);
+const CategoriesView = lazy(() =>
+  import('./views/Categories').then((m) => ({ default: m.CategoriesView })),
+);
+const FeaturedView = lazy(() =>
+  import('./views/Featured').then((m) => ({ default: m.FeaturedView })),
+);
+const SyrupsView = lazy(() =>
+  import('./views/Syrups').then((m) => ({ default: m.SyrupsView })),
+);
+const CafeInfoView = lazy(() =>
+  import('./views/CafeInfo').then((m) => ({ default: m.CafeInfoView })),
+);
+const QrCodeView = lazy(() =>
+  import('./views/QrCode').then((m) => ({ default: m.QrCodeView })),
+);
+const PreviewPublishView = lazy(() =>
+  import('./views/PreviewPublish').then((m) => ({
+    default: m.PreviewPublishView,
+  })),
+);
+const SettingsView = lazy(() =>
+  import('./views/Settings').then((m) => ({ default: m.SettingsView })),
+);
 
 const SESSION_KEY = 'eyvan-admin-session';
 
@@ -447,17 +471,25 @@ function AdminShell() {
           </div>
 
           <main key={routeKey(route)}>
-            {route.name === 'dashboard' && <DashboardView />}
-            {route.name === 'items' && <ItemsView />}
-            {route.name === 'item' && <ItemEditorView itemId={route.id} />}
-            {route.name === 'prices' && <BulkPricesView />}
-            {route.name === 'categories' && <CategoriesView />}
-            {route.name === 'featured' && <FeaturedView />}
-            {route.name === 'syrups' && <SyrupsView />}
-            {route.name === 'cafe' && <CafeInfoView />}
-            {route.name === 'qr' && <QrCodeView />}
-            {route.name === 'preview' && <PreviewPublishView />}
-            {route.name === 'settings' && <SettingsView />}
+            <Suspense
+              fallback={
+                <div className="flex min-h-[240px] items-center justify-center text-muted-foreground">
+                  <Loader2 className="size-6 animate-spin" />
+                </div>
+              }
+            >
+              {route.name === 'dashboard' && <DashboardView />}
+              {route.name === 'items' && <ItemsView />}
+              {route.name === 'item' && <ItemEditorView itemId={route.id} />}
+              {route.name === 'prices' && <BulkPricesView />}
+              {route.name === 'categories' && <CategoriesView />}
+              {route.name === 'featured' && <FeaturedView />}
+              {route.name === 'syrups' && <SyrupsView />}
+              {route.name === 'cafe' && <CafeInfoView />}
+              {route.name === 'qr' && <QrCodeView />}
+              {route.name === 'preview' && <PreviewPublishView />}
+              {route.name === 'settings' && <SettingsView />}
+            </Suspense>
           </main>
 
           {/* Mobile footer actions */}

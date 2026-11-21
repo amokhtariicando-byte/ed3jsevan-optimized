@@ -11,10 +11,8 @@ import { MenuCategory, MenuItem } from '../data/menuData';
 import {
   calculateItemPrice,
   computeShortestWheelAngle,
-  formatToman,
   getDefaultBean,
   getWheelSlotPosition,
-  toPersianDigits,
 } from '../utils/menuLogic';
 import {
   easeInOutCubic,
@@ -22,7 +20,17 @@ import {
   projectTableSeat,
 } from '../utils/tableProjection';
 import { EyvanLogo } from './EyvanLogo';
-import { FadeInImage } from './FadeInImage';
+import {
+  FadeInImage,
+  getCutoutDimensions,
+  isPrebakedTopdownSrc,
+  preloadAndDecodeImage,
+  toMobileCutoutSrc,
+  toThumbSrc,
+} from './FadeInImage';
+import { prefersReducedMotion } from '../utils/motion';
+import { getDeviceProfile } from '../utils/deviceTier';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export type CameraAngle = 'top' | 'front';
 
@@ -49,6 +57,12 @@ interface AnimatedCameraState {
 }
 
 const FOCAL_ANGLE_DEG = 180; // 6 o'clock front-center in BOTH top-down and eye-level modes
+
+/** Smooth Hermite interpolation for natural camera cross-dissolve curves. */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
 
 /**
  * Cached style writer: skips the DOM write when the value is unchanged for
@@ -122,12 +136,7 @@ function writeStyleNums(
   (el.style as unknown as Record<string, string>)[prop] = build();
 }
 
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  );
-}
+
 
 /**
  * Wraps an angle delta to (-180, 180] so a drag crossing the ±180° seam
@@ -186,7 +195,7 @@ function getGlassCausticTint(cutoutPath: string): string | null {
  */
 function buildGroundingShadowBackground(causticTint: string | null): string {
   const layers: string[] = [
-    'radial-gradient(ellipse 30% 24% at 50% 48%, rgba(8, 12, 22, 0.72) 0%, rgba(10, 15, 28, 0.36) 52%, rgba(10, 15, 28, 0) 100%)',
+    'radial-gradient(ellipse 34% 26% at 50% 52%, rgba(8, 12, 22, 0.84) 0%, rgba(10, 15, 28, 0.44) 50%, rgba(10, 15, 28, 0) 100%)',
   ];
   if (causticTint) {
     layers.push(
@@ -436,10 +445,9 @@ export const RotaryTableStage = memo(function RotaryTableStage({
   >(null);
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
 
+  const { t, formatDigits, formatPrice } = useLanguage();
+  const deviceProfile = getDeviceProfile();
   const isMobile = viewport.width < 1024;
-  // Render-time reduced-motion probe for the resize size-transitions
-  // below (paintFrame-driven motion probes it separately, per animation).
-  const reduceMotion = prefersReducedMotion();
   const isFrontCamera =
     cameraAngle === 'front' && !overviewMode && !category.comingSoon;
 
@@ -461,24 +469,22 @@ export const RotaryTableStage = memo(function RotaryTableStage({
   // cached srcs are cheap no-ops. Desktop renders every seat, so it keeps
   // the full set.
   useEffect(() => {
-    if (category.comingSoon || items.length === 0) return;
+    if (category.comingSoon || items.length === 0 || !deviceProfile.allowIdlePreload) return;
     const preloadCutouts = isMobile
       ? Array.from(
           new Set(
             items
               .filter((_, idx) => {
                 const rawDiff = Math.abs(idx - activeIndex);
-                return Math.min(rawDiff, items.length - rawDiff) <= 2;
+                return Math.min(rawDiff, items.length - rawDiff) <= deviceProfile.maxMobileRingDist;
               })
-              .map((i) => i.cutoutImage),
+              .map((i) => toMobileCutoutSrc(i.cutoutImage)),
           ),
         )
       : Array.from(new Set(items.map((i) => i.cutoutImage)));
     const preload = () => {
-      for (const src of preloadCutouts) {
-        const img = new Image();
-        img.decoding = 'async';
-        img.src = src;
+      for (const srcUrl of preloadCutouts) {
+        preloadAndDecodeImage(srcUrl);
       }
     };
     if ('requestIdleCallback' in window) {
@@ -494,7 +500,20 @@ export const RotaryTableStage = memo(function RotaryTableStage({
     const onResize = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        setViewport({ width: window.innerWidth, height: window.innerHeight });
+        const nextW = window.innerWidth;
+        const nextH = window.innerHeight;
+        setViewport((prev) => {
+          // On mobile, browser address-bar show/hide changes height by ~56-100px
+          // without changing width; ignoring those prevents vertical table jumps during scroll.
+          if (
+            nextW < 1024 &&
+            nextW === prev.width &&
+            Math.abs(nextH - prev.height) < 120
+          ) {
+            return prev;
+          }
+          return { width: nextW, height: nextH };
+        });
       }, 150);
     };
     window.addEventListener('resize', onResize);
@@ -510,29 +529,54 @@ export const RotaryTableStage = memo(function RotaryTableStage({
     const vh = viewport.height;
 
     if (vw < 1024) {
-      const tableDiameter = Math.min(460, Math.max(376, vw * 1.14));
+      // Dynamic Arc Geometry: scale the marble ring diameter proportionally to
+      // item count so adjacent cups ALWAYS have ~42–50px of clean marble space
+      // (zero overlap even for 9–10 item categories like hot-coffee & tea-herbal).
+      const itemCount = Math.max(4, items.length);
+      const dishSize = Math.round(Math.min(116, Math.max(96, vw * 0.285)));
+      const ringRadiusPct = 37.5;
+      const targetChordPx = dishSize * 1.44;
+      const minRingRadiusPx =
+        targetChordPx / (2 * Math.sin(Math.PI / itemCount));
+      const tableDiameter = Math.round(
+        Math.min(760, Math.max(440, minRingRadiusPx / (ringRadiusPct / 100))),
+      );
+      const ringRadiusPx = (tableDiameter * ringRadiusPct) / 100;
+
       const overviewScale = Math.min(
-        (vw - 28) / tableDiameter,
-        (vh - 230) / tableDiameter,
+        (vw - 24) / tableDiameter,
+        (vh - 220) / tableDiameter,
       );
 
-      // Mobile sits cleanly below the 56px header + 44px top category strip (y = 100px)
+      // Pin the 6-o'clock focal cup at a consistent luxury sweet-spot regardless of itemCount
       const isCompactPhone = vh < 720;
+      const topScale = 0.96;
+      const frontScale = 0.92;
+      const desiredTopFocalY = isCompactPhone
+        ? Math.max(208, vh * 0.31)
+        : Math.max(236, vh * 0.305);
       const topCx = vw * 0.5;
-      const topCy = isCompactPhone
-        ? Math.max(134, vh * 0.2)
-        : Math.max(146, vh * 0.185);
+      const topCy = desiredTopFocalY - ringRadiusPx * topScale;
+
+      // Project the front-view focal coaster to a consistent Y above the lower card
+      const frontPitchRad = (72 * Math.PI) / 180;
+      const frontLocalY = ringRadiusPx * frontScale;
+      const frontRotY = frontLocalY * Math.cos(frontPitchRad);
+      const frontRotZ = frontLocalY * Math.sin(frontPitchRad);
+      const frontPerspScale = 1320 / Math.max(240, 1320 - frontRotZ);
+      const desiredFrontFocalY = isCompactPhone
+        ? Math.max(320, vh * 0.48)
+        : Math.max(370, vh * 0.485);
       const frontCx = vw * 0.5;
-      const frontCy = isCompactPhone
-        ? Math.max(262, vh * 0.405)
-        : Math.max(304, vh * 0.415);
+      const frontCy = desiredFrontFocalY - frontRotY * frontPerspScale;
+
       const overviewCx = vw * 0.5;
       const overviewCy = vh * 0.53;
 
       return {
         tableDiameter,
-        ringRadiusPct: 30.5,
-        dishSize: Math.round(tableDiameter * 0.275),
+        ringRadiusPct,
+        dishSize,
         tallCutoutH: Math.round(
           isCompactPhone
             ? Math.min(148, vh * 0.222)
@@ -548,8 +592,8 @@ export const RotaryTableStage = memo(function RotaryTableStage({
         scale: overviewMode
           ? overviewScale
           : isFrontCamera
-            ? 0.92
-            : 0.94,
+            ? frontScale
+            : topScale,
         pitch: isFrontCamera ? 72 : 0,
         perspective: isFrontCamera ? 1320 : 1700,
       };
@@ -618,6 +662,20 @@ export const RotaryTableStage = memo(function RotaryTableStage({
     ),
   );
   const prevCategoryRef = useRef<string>(category.id);
+  const prevActiveIndexRef = useRef<number>(activeIndex);
+
+  useEffect(() => {
+    if (prevActiveIndexRef.current !== activeIndex) {
+      prevActiveIndexRef.current = activeIndex;
+      if (isMobile && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        try {
+          navigator.vibrate(6);
+        } catch {
+          // Ignore if browser blocks vibration before gesture
+        }
+      }
+    }
+  }, [activeIndex, isMobile]);
 
   const animRef = useRef<AnimatedCameraState>({
     wheelAngle: targetWheelAngleRef.current,
@@ -656,8 +714,9 @@ export const RotaryTableStage = memo(function RotaryTableStage({
   const paintFrame = useCallback((state: AnimatedCameraState) => {
     const meta = frameMetaRef.current;
     const pitchRatio = Math.max(0, Math.min(1, state.pitch / 71));
-    const plateOpacityFactor = Math.max(0, 1 - pitchRatio * 2.15);
-    const standingReveal = Math.max(0, Math.min(1, (pitchRatio - 0.18) / 0.82));
+    // Smoothstep overlap eliminates the mid-tilt hollow gap between top plates and standing drinks
+    const plateOpacityFactor = 1 - smoothstep(0.06, 0.56, pitchRatio);
+    const standingReveal = smoothstep(0.14, 0.88, pitchRatio);
     const halfD = meta.tableDiameter / 2;
 
     // P2-3: numeric-keyed writes — compare the numbers BEFORE building the
@@ -704,11 +763,9 @@ export const RotaryTableStage = memo(function RotaryTableStage({
         );
         const plateBtn = plateBtnRefs.current[i];
         if (plateBtn) {
-          const baseOp = meta.overviewMode
-            ? 1
-            : i === meta.activeIndex
-              ? 1
-              : 0.88;
+          // Keep all ceramic plates fully opaque so marble veining never bleeds through cups;
+          // active vs inactive hierarchy is expressed via scale + contact shadow.
+          const baseOp = 1;
           const plateOp = plateOpacityFactor * baseOp;
           writeStyleNums(plateBtn, 'opacity', [plateOp], () =>
             plateOp.toFixed(3),
@@ -731,7 +788,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
         );
 
         if (visible) {
-          const revealScaleY = 0.58 + standingReveal * 0.42;
+          const revealScaleY = 0.72 + standingReveal * 0.28;
           // P2-3: pitch is constant across items within a frame — compute
           // its trig once and pass it into projectTableSeat instead of
           // recomputing sin/cos per item.
@@ -758,11 +815,12 @@ export const RotaryTableStage = memo(function RotaryTableStage({
               slotAngleDeg,
             });
 
-            const seatOpacity =
-              standingReveal *
-              (proj.frontness >= 0.1
+            // Smooth depth fade for far-rear glasses (especially on compact mobile screens)
+            const rearFade =
+              proj.frontness >= -0.05
                 ? 1
-                : Math.max(0.76, 0.76 + (proj.frontness + 1) * 0.22));
+                : 0.25 + 0.75 * smoothstep(-0.92, -0.05, proj.frontness);
+            const seatOpacity = standingReveal * rearFade;
 
             writeStyleNums(
               wrapper,
@@ -793,7 +851,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
               // button element is keyed by item.id, so they are excluded
               // from the numeric key — only the moving scales are compared.
               const shiftPct = isCup ? -45.5 : -50;
-              const yOff = isCup ? 3 : 1;
+              const yOff = isCup ? 9 : 6;
               const sx = proj.perspScale;
               const sy = proj.perspScale * revealScaleY;
               writeStyleNums(btnEl, 'transform', [sx, sy], () =>
@@ -808,6 +866,11 @@ export const RotaryTableStage = memo(function RotaryTableStage({
 
   // Synchronously paint current refs whenever DOM nodes mount/resize so there is zero 1-frame flash
   useLayoutEffect(() => {
+    coasterRefs.current.length = items.length;
+    plateBtnRefs.current.length = items.length;
+    seatWrapperRefs.current.length = items.length;
+    seatShadowRefs.current.length = items.length;
+    seatBtnRefs.current.length = items.length;
     paintFrame(animRef.current);
   }, [
     paintFrame,
@@ -852,11 +915,9 @@ export const RotaryTableStage = memo(function RotaryTableStage({
       perspective: targetGeo.perspective,
     };
 
-    const reducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const reducedMotion = prefersReducedMotion();
 
-    if (reducedMotion || categoryChanged) {
+    if (reducedMotion) {
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
@@ -870,7 +931,14 @@ export const RotaryTableStage = memo(function RotaryTableStage({
       return;
     }
 
-    const start: AnimatedCameraState = { ...animRef.current };
+    // On category switch, glide smoothly by 20deg into the new tray instead of snapping dryly
+    const start: AnimatedCameraState = categoryChanged
+      ? { ...target, wheelAngle: nextWheelAngle - 20 }
+      : { ...animRef.current };
+    if (categoryChanged) {
+      animRef.current = start;
+      paintFrame(start);
+    }
     const startTime = performance.now();
     const isCameraMove = Math.abs(target.pitch - start.pitch) > 1;
     const wheelDelta = Math.abs(nextWheelAngle - animRef.current.wheelAngle);
@@ -881,9 +949,11 @@ export const RotaryTableStage = memo(function RotaryTableStage({
     // 480ms (P1-4: was 600ms — the longest tap-response duration in the
     // app; 480ms keeps the move coherent with the wheel while feeling
     // ~20% snappier on the tap path).
-    const durationMs = isCameraMove
-      ? 480
-      : Math.min(600, Math.max(380, 360 + wheelDelta * 1.3));
+    const durationMs = categoryChanged
+      ? 420
+      : isCameraMove
+        ? 540
+        : Math.min(600, Math.max(380, 360 + wheelDelta * 1.3));
 
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
@@ -959,26 +1029,32 @@ export const RotaryTableStage = memo(function RotaryTableStage({
     active: boolean;
     startX: number;
     startY: number;
+    lastX: number;
     startWheelAngle: number;
     lastPointerAngle: number;
-    snapshotAngle: number;
+    snapshotWheelAngle: number;
     snapshotTime: number;
     centerX: number;
     centerY: number;
     pointerId: number;
     captureSet: boolean;
+    isLinearMobile: boolean;
+    axisLock: 'none' | 'horizontal' | 'vertical';
   }>({
     active: false,
     startX: 0,
     startY: 0,
+    lastX: 0,
     startWheelAngle: 0,
     lastPointerAngle: 0,
-    snapshotAngle: 0,
+    snapshotWheelAngle: 0,
     snapshotTime: 0,
     centerX: 0,
     centerY: 0,
     pointerId: -1,
     captureSet: false,
+    isLinearMobile: false,
+    axisLock: 'none',
   });
 
   const handleStageWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -999,15 +1075,10 @@ export const RotaryTableStage = memo(function RotaryTableStage({
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
-    // The disc's on-screen center (from its own bounding box) is the pivot for
-    // angular dragging — robust to layout, camera mode and scroll.
-    const discRect = wheelDiscRef.current?.getBoundingClientRect();
-    const centerX = discRect
-      ? discRect.left + discRect.width / 2
-      : e.clientX;
-    const centerY = discRect
-      ? discRect.top + discRect.height / 2
-      : e.clientY;
+    // Compute disc pivot from live animation state + scroll offset (avoids
+    // Forced Synchronous Layout via getBoundingClientRect() on pointerdown).
+    const centerX = animRef.current.cx;
+    const centerY = animRef.current.cy - (window.scrollY || 0);
     const angle = pointerAngleDeg(e.clientX, e.clientY, centerX, centerY);
     const now = performance.now();
     // A previous drag's coalesced frame must never leak into this one.
@@ -1020,14 +1091,17 @@ export const RotaryTableStage = memo(function RotaryTableStage({
       active: true,
       startX: e.clientX,
       startY: e.clientY,
+      lastX: e.clientX,
       startWheelAngle: animRef.current.wheelAngle,
       lastPointerAngle: angle,
-      snapshotAngle: angle,
+      snapshotWheelAngle: animRef.current.wheelAngle,
       snapshotTime: now,
       centerX,
       centerY,
       pointerId: e.pointerId,
       captureSet: false,
+      isLinearMobile: isMobile,
+      axisLock: 'none',
     };
   };
 
@@ -1046,54 +1120,63 @@ export const RotaryTableStage = memo(function RotaryTableStage({
       finishDrag(clientX, clientY, false);
       return;
     }
-    // Engage pointer capture once the gesture is unambiguously a drag
-    // (past the 16px tap threshold) so moves keep flowing even if the
-    // finger slides off the stage or over an overlaying element.
-    // Capturing on pointerdown would retarget the pointerup to the stage
-    // and break the plate buttons' click, so it must stay deferred.
-    if (!drag.captureSet) {
-      const distFromStart = Math.hypot(
-        clientX - drag.startX,
-        clientY - drag.startY,
-      );
-      if (distFromStart >= 16) {
-        drag.captureSet = true;
-        try {
-          stageRef.current?.setPointerCapture(drag.pointerId);
-        } catch {
-          // Pointer already gone — capture is best-effort.
-        }
-      }
+    const dxTotal = clientX - drag.startX;
+    const dyTotal = clientY - drag.startY;
+    const distFromStart = Math.hypot(dxTotal, dyTotal);
+
+    // Directional lock on mobile: if the user is clearly scrolling vertically down
+    // toward the footer, yield immediately instead of fighting the scroll.
+    if (drag.isLinearMobile && drag.axisLock === 'none' && distFromStart >= 8) {
+      drag.axisLock =
+        Math.abs(dxTotal) >= Math.abs(dyTotal) * 0.85
+          ? 'horizontal'
+          : 'vertical';
     }
-    const angle = pointerAngleDeg(
-      clientX,
-      clientY,
-      drag.centerX,
-      drag.centerY,
-    );
-    // Too close to the hub: atan2 is unstable there, so track the angle but
-    // don't rotate — this also keeps tracking continuous if the finger crosses
-    // the center.
-    const radius = Math.hypot(clientX - drag.centerX, clientY - drag.centerY);
-    if (radius < 24) {
-      drag.lastPointerAngle = angle;
+    if (drag.axisLock === 'vertical') {
       return;
     }
-    // Angular 1:1 tracking: the wheel turns by exactly the angle the finger
-    // sweeps around the table center, so the grabbed cup follows the finger
-    // everywhere on the disc — including the front, where a linear mapping
-    // moved the cups opposite to the finger.
-    const delta = wrapDeltaDeg(angle - drag.lastPointerAngle);
-    drag.lastPointerAngle = angle;
+
+    if (!drag.captureSet && distFromStart >= 10) {
+      drag.captureSet = true;
+      try {
+        stageRef.current?.setPointerCapture(drag.pointerId);
+      } catch {
+        // Pointer already gone — capture is best-effort.
+      }
+    }
+
+    let delta = 0;
+    if (drag.isLinearMobile) {
+      // Intuitive one-handed horizontal swipe on mobile: swiping right rotates
+      // the front focal cup smoothly rightward (counter-clockwise = -delta).
+      const stepX = clientX - drag.lastX;
+      drag.lastX = clientX;
+      delta = -stepX * 0.38;
+    } else {
+      const angle = pointerAngleDeg(
+        clientX,
+        clientY,
+        drag.centerX,
+        drag.centerY,
+      );
+      const radius = Math.hypot(clientX - drag.centerX, clientY - drag.centerY);
+      if (radius < 24) {
+        drag.lastPointerAngle = angle;
+        return;
+      }
+      delta = wrapDeltaDeg(angle - drag.lastPointerAngle);
+      drag.lastPointerAngle = angle;
+    }
+
+    const nextWheel = animRef.current.wheelAngle + delta;
     animRef.current = {
       ...animRef.current,
-      wheelAngle: animRef.current.wheelAngle + delta,
+      wheelAngle: nextWheel,
     };
     paintFrame(animRef.current);
-    // Refresh the trailing ~100ms velocity snapshot at most every 100ms
     const now = performance.now();
-    if (now - drag.snapshotTime >= 100) {
-      drag.snapshotAngle = angle;
+    if (now - drag.snapshotTime >= 90) {
+      drag.snapshotWheelAngle = nextWheel;
       drag.snapshotTime = now;
     }
   };
@@ -1160,33 +1243,49 @@ export const RotaryTableStage = memo(function RotaryTableStage({
       return;
     }
 
-    // Release angular velocity over the trailing ~100ms window
-    // (snapshot -> release). 0.12 deg/ms ≈ a deliberate flick at any grab radius.
-    const angleDelta = wrapDeltaDeg(
-      drag.lastPointerAngle - drag.snapshotAngle,
-    );
-    const velocityDegPerMs =
-      angleDelta / Math.max(1, now - drag.snapshotTime);
-
-    // Fast flick: step once in the flick direction (counter-clockwise = next)
-    if (allowFlick && Math.abs(velocityDegPerMs) > 0.12) {
-      onStep(velocityDegPerMs < 0 ? 1 : -1);
+    // If mobile gesture locked to vertical scroll, restore angle cleanly without stepping
+    if (drag.axisLock === 'vertical') {
+      animRef.current = {
+        ...animRef.current,
+        wheelAngle: drag.startWheelAngle,
+      };
+      paintFrame(animRef.current);
       return;
     }
 
-    // Otherwise settle onto the nearest slot (closest to the 6 o'clock focal)
+    // Release angular velocity over the trailing ~90ms window (works for both mobile swipe & desktop polar drag)
+    const angleDelta = animRef.current.wheelAngle - drag.snapshotWheelAngle;
+    const velocityDegPerMs =
+      angleDelta / Math.max(1, now - drag.snapshotTime);
+
+    // Momentum projection: project the wheel forward proportionally to release
+    // velocity so a deliberate flick glides naturally 1–3 slots forward and
+    // never snaps backward after a multi-slot drag.
     const count = Math.max(1, items.length);
-    const wheel = animRef.current.wheelAngle;
+    const momentumDeg =
+      allowFlick && Math.abs(velocityDegPerMs) > 0.1
+        ? Math.max(-135, Math.min(135, velocityDegPerMs * 185))
+        : 0;
+    const projectedWheel = animRef.current.wheelAngle + momentumDeg;
     let nearestIndex = activeIndex;
     let bestDelta = Infinity;
     for (let i = 0; i < count; i++) {
-      const slotAngle = (i / count) * 360 + wheel;
+      const slotAngle = (i / count) * 360 + projectedWheel;
       const delta = (((slotAngle - FOCAL_ANGLE_DEG) % 360) + 540) % 360 - 180;
       const absDelta = Math.abs(delta);
       if (absDelta < bestDelta) {
         bestDelta = absDelta;
         nearestIndex = i;
       }
+    }
+    // Guarantee at least a 1-slot step on a crisp short flick that didn't cross a slot midpoint
+    if (
+      nearestIndex === activeIndex &&
+      allowFlick &&
+      Math.abs(velocityDegPerMs) > 0.14
+    ) {
+      onStep(velocityDegPerMs < 0 ? 1 : -1);
+      return;
     }
 
     if (nearestIndex !== activeIndex) {
@@ -1208,9 +1307,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
     }
-    const reducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const reducedMotion = prefersReducedMotion();
     if (reducedMotion) {
       animRef.current = { ...animRef.current, wheelAngle: targetAngle };
       paintFrame(animRef.current);
@@ -1264,6 +1361,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
       onPointerCancel={handlePointerCancel}
       aria-label="میز دوّار نمایش محصولات کافه ایوان"
       className="pointer-events-auto absolute inset-0 overflow-hidden select-none touch-pan-y"
+      style={{ contain: "layout style paint" }}
     >
       {/* Static GPU-crossfaded softbox studio backdrop illumination (zero per-frame gradient repaints) */}
       {/* Opacity on both glows (and the slab edge + coasters below) is
@@ -1313,6 +1411,17 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                 'linear-gradient(180deg, #D5CEC1 0%, #BDB3A1 50%, #8F8574 100%)',
               boxShadow: '0 22px 48px rgba(3, 6, 15, 0.72)',
               // Opacity owned solely by paintFrame (see the glow note above).
+            }}
+          />
+
+          {/* Non-rotating ambient shadow beneath the marble disc (zero-blur gradient, physically grounded) */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -inset-[5.5%] rounded-full"
+            style={{
+              transform: 'translate3d(0, 2.2%, 0) translateZ(-20px)',
+              background:
+                'radial-gradient(circle at 50% 50%, rgba(15, 20, 28, 0.34) 68%, rgba(15, 20, 28, 0.14) 84%, rgba(15, 20, 28, 0) 100%)',
             }}
           />
 
@@ -1377,7 +1486,9 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                       ? isMobile
                         ? 1.16
                         : 1.32
-                      : 0.92;
+                      : isMobile
+                        ? 0.86
+                        : 0.88;
                   const isBroken = Boolean(brokenImages[item.id]);
 
                   return (
@@ -1443,9 +1554,19 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                         className="eyvan-stage-btn eyvan-plate-scale group absolute inset-0 cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B7043]"
                         style={{
                           transform: `scale(${plateScale})`,
-                          transition: 'transform 300ms var(--ease-out)',
+                          transition: 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)',
                         }}
                       >
+                        {!overviewMode && isActive && (
+                          <span
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-[12%] rounded-full"
+                            style={{
+                              background:
+                                'radial-gradient(circle at 50% 54%, rgba(28, 30, 18, 0.22) 38%, rgba(28, 30, 18, 0.08) 66%, rgba(28, 30, 18, 0) 88%)',
+                            }}
+                          />
+                        )}
                         {overviewMode && (isActive || isHovered) && (
                           <span
                             aria-hidden="true"
@@ -1453,17 +1574,19 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                           />
                         )}
 
+                        {/* Warm alabaster saucer base so slot never looks empty while decoding on slow networks */}
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-[16%] rounded-full border border-[#B5945B]/16 bg-[#E9E4DA]/70"
+                        />
                         {!isBroken ? (
                           <FadeInImage
-                            src={item.image}
+                            src={isMobile ? toThumbSrc(item.image) : item.image}
+                            fallbackSrc={item.image}
                             alt={item.name}
-                            width={480}
-                            height={480}
+                            width={isMobile ? 256 : 480}
+                            height={isMobile ? 256 : 480}
                             decoding="async"
-                            // P1-8: the front/selected plate is the hero
-                            // image — prioritise its fetch. Other plates
-                            // keep the browser default. FadeInImage passes
-                            // this straight through to the <img>.
                             fetchPriority={isActive ? 'high' : undefined}
                             referrerPolicy="no-referrer"
                             draggable={false}
@@ -1473,7 +1596,11 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                                 [item.id]: true,
                               }))
                             }
-                            className="eyvan-plate-img pointer-events-none h-full w-full rounded-full object-cover"
+                            className={`${
+                              isPrebakedTopdownSrc(item.image)
+                                ? 'eyvan-plate-img-baked'
+                                : 'eyvan-plate-img'
+                            } pointer-events-none h-full w-full rounded-full object-cover`}
                             style={{
                               transform: `rotate(${item.plateAngle ?? 0}deg)`,
                             }}
@@ -1498,6 +1625,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
               transform: overviewMode
                 ? 'translate(-50%, -50%) translateZ(3px) scale(1)'
                 : 'translate(-50%, -50%) translateZ(3px) scale(0.95)',
+              transitionDelay: overviewMode ? '80ms' : '0ms',
             }}
           >
             <EyvanLogo variant="mark" tone="navy" className="scale-90" />
@@ -1507,7 +1635,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                   {category.name}
                 </p>
                 <p className="mt-1 text-xs font-medium text-[#6B7043]">
-                  به‌زودی در ایوان
+                  {t.comingSoonAtEyvan}
                 </p>
               </>
             ) : displayCenterItem ? (
@@ -1519,7 +1647,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                   {displayCenterItem.name}
                 </p>
                 <p className="tabular-fa mt-1 text-sm font-medium text-[#6B7043]">
-                  {formatToman(
+                  {formatPrice(
                     calculateItemPrice(
                       displayCenterItem,
                       getDefaultBean(displayCenterItem),
@@ -1528,12 +1656,12 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                   )}
                 </p>
                 <p className="mt-2 text-[11px] text-[#78716C]">
-                  روی هر نوشیدنی کلیک کنید
+                  {t.clickAnyDrink}
                 </p>
               </>
             ) : (
               <p className="mt-2 text-sm text-[#78716C]">
-                {toPersianDigits(items.length)} آیتم روی میز
+                {formatDigits(items.length)} {t.itemsOnTableSuffix}
               </p>
             )}
           </div>
@@ -1552,13 +1680,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
             const rawDiff = Math.abs(idx - activeIndex);
             const ringDist = Math.min(rawDiff, items.length - rawDiff);
 
-            // On mobile phones, cull distant rear glasses (ringDist >= 3) to slash GPU layers by ~45%
-            if (isMobile && items.length > 5 && ringDist > 2) {
-              seatWrapperRefs.current[idx] = null;
-              seatShadowRefs.current[idx] = null;
-              seatBtnRefs.current[idx] = null;
-              return null;
-            }
+            // All category seats stay mounted so rotating the table never pops glasses in/out abruptly.
 
             const isActive = idx === activeIndex;
             const isCup = item.vesselType === 'cup';
@@ -1573,13 +1695,20 @@ export const RotaryTableStage = memo(function RotaryTableStage({
               : getGlassCausticTint(item.cutoutImage);
             const shadowBg = buildGroundingShadowBackground(causticTint);
 
-            // Static cached optical bokeh by discrete ring distance (GPU caches bitmap once -> locked 60fps!)
-            const cachedImgFilter =
-              ringDist === 0
-                ? 'brightness(1) saturate(1.03) contrast(1.03)'
+            // Zero-blur depth treatment: live CSS blur() combined with per-frame
+            // scale() forces texture re-rasterization on mobile GPUs & Safari.
+            // Depth hierarchy is handled by perspective scale + opacity + subtle tone.
+            const cachedImgFilter = isMobile
+              ? undefined
+              : ringDist === 0
+                ? undefined
                 : ringDist === 1
-                  ? 'blur(1.4px) brightness(0.95) saturate(0.93) contrast(1.02)'
-                  : 'blur(2.6px) brightness(0.89) saturate(0.87) contrast(1.01)';
+                  ? 'brightness(0.95) saturate(0.94)'
+                  : 'brightness(0.88) saturate(0.88)';
+            const cutoutSrc = isMobile
+              ? toMobileCutoutSrc(item.cutoutImage)
+              : item.cutoutImage;
+            const cutoutDims = getCutoutDimensions(item.cutoutImage);
 
             return (
               <div
@@ -1601,13 +1730,7 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                     height: `${shadowBoxH}px`,
                     transformOrigin: '50% 50%',
                     backgroundImage: shadowBg,
-                    // Size glides with toolbar/rotation resizes (the box
-                    // derives from vh via baseHeight). paintFrame writes
-                    // only transform here, so this never fights the rAF
-                    // loop; reduced-motion keeps the instant change.
-                    transition: reduceMotion
-                      ? undefined
-                      : 'width 300ms ease-out, height 300ms ease-out',
+
                   }}
                 />
 
@@ -1637,28 +1760,22 @@ export const RotaryTableStage = memo(function RotaryTableStage({
                     height: `${baseHeight}px`,
                     width: 'auto',
                     transformOrigin: isCup ? '45.5% 100%' : '50% 100%',
-                    // Height glides with toolbar/rotation resizes (it
-                    // derives from vh) instead of popping ~10-30px while
-                    // the foot position animates smoothly. paintFrame
-                    // writes only transform to this button, so a height
-                    // transition never fights the rAF loop; reduced-motion
-                    // keeps the instant change. (NOT a transform
-                    // transition — those are forbidden on .eyvan-stage-btn.)
-                    transition: reduceMotion
-                      ? undefined
-                      : 'height 300ms ease-out',
+
                   }}
                 >
                   <FadeInImage
-                    src={item.cutoutImage}
+                    src={cutoutSrc}
+                    fallbackSrc={item.cutoutImage}
                     alt={`نمای روبه‌رو ${item.name}`}
+                    width={cutoutDims?.width}
+                    height={cutoutDims?.height}
                     decoding="async"
                     referrerPolicy="no-referrer"
                     draggable={false}
                     className="pointer-events-none block h-full w-auto max-w-none object-contain select-none"
-                    style={{
-                      filter: cachedImgFilter,
-                    }}
+                    style={
+                      cachedImgFilter ? { filter: cachedImgFilter } : undefined
+                    }
                   />
                 </button>
               </div>
@@ -1672,7 +1789,8 @@ export const RotaryTableStage = memo(function RotaryTableStage({
         !isFrontCamera &&
         !category.comingSoon &&
         activeItem?.isHot &&
-        !isMobile && (
+        !isMobile &&
+        deviceProfile.enableSteam && (
           <div
             aria-hidden="true"
             className="pointer-events-none absolute z-30 flex gap-3 opacity-75"

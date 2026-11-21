@@ -89,6 +89,27 @@ export function calculateItemPrice(
 /**
  * Filter menu items by active category, or across ALL categories when searchQuery is non-empty.
  */
+const normalizedItemTextCache = new WeakMap<MenuItem, string>();
+const normalizedCategoryTextCache = new WeakMap<MenuCategory, string>();
+
+function getNormalizedItemText(item: MenuItem): string {
+  let cached = normalizedItemTextCache.get(item);
+  if (cached === undefined) {
+    cached = normalizePersian(`${item.name} ${item.description}`);
+    normalizedItemTextCache.set(item, cached);
+  }
+  return cached;
+}
+
+function getNormalizedCategoryText(category: MenuCategory): string {
+  let cached = normalizedCategoryTextCache.get(category);
+  if (cached === undefined) {
+    cached = normalizePersian(`${category.name} ${category.shortName}`);
+    normalizedCategoryTextCache.set(category, cached);
+  }
+  return cached;
+}
+
 export function filterMenuItems(
   items: MenuItem[],
   activeCategoryId: CategoryId,
@@ -98,10 +119,7 @@ export function filterMenuItems(
   if (!q) {
     return items.filter((item) => item.categoryId === activeCategoryId);
   }
-  return items.filter((item) => {
-    const haystack = normalizePersian(`${item.name} ${item.description}`);
-    return haystack.includes(q);
-  });
+  return items.filter((item) => getNormalizedItemText(item).includes(q));
 }
 
 export interface SimpleMenuSection {
@@ -137,12 +155,11 @@ export function groupMenuForSimpleView(
   const sections: SimpleMenuSection[] = [];
   for (const category of scopedCategories) {
     if (category.comingSoon) continue;
+    const catText = getNormalizedCategoryText(category);
+    const catMatches = catText.includes(q);
     const matched = items.filter((item) => {
       if (item.categoryId !== category.id) return false;
-      const haystack = normalizePersian(
-        `${item.name} ${item.description} ${category.name} ${category.shortName}`,
-      );
-      return haystack.includes(q);
+      return catMatches || getNormalizedItemText(item).includes(q);
     });
     if (matched.length > 0) {
       sections.push({ category, items: matched });

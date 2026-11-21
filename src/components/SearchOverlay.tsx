@@ -1,14 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { MENU_CATEGORIES, MENU_ITEMS, MenuItem } from '../data/menuData';
 import {
   calculateItemPrice,
   filterMenuItems,
-  formatToman,
   getDefaultBean,
-  toPersianDigits,
 } from '../utils/menuLogic';
 import { FadeInImage, toThumbSrc } from './FadeInImage';
+import { useBodyScrollLock } from '../utils/motion';
+import { localizeCategory, localizeItem, useLanguage } from '../i18n/LanguageContext';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -21,7 +21,10 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   onClose,
   onSelectMenuItem,
 }) => {
+  const { lang, t, formatDigits, formatPrice } = useLanguage();
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
+  useBodyScrollLock(open);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [panelState, setPanelState] = useState<
     'closed' | 'open' | 'closing'
@@ -58,14 +61,25 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   }, [open, handleClose]);
 
   const categoryNameMap = useMemo(
-    () => new Map(MENU_CATEGORIES.map((c) => [c.id, c.shortName])),
-    [],
+    () =>
+      new Map(
+        MENU_CATEGORIES.map((c) => {
+          const loc = localizeCategory(c, lang);
+          return [loc.id, loc.shortName];
+        }),
+      ),
+    [lang],
+  );
+
+  const localizedItems = useMemo(
+    () => MENU_ITEMS.map((i) => localizeItem(i, lang)),
+    [lang],
   );
 
   const results = useMemo(() => {
-    if (!query.trim()) return MENU_ITEMS.slice(0, 12);
-    return filterMenuItems(MENU_ITEMS, 'hot-coffee', query);
-  }, [query]);
+    if (!deferredQuery.trim()) return localizedItems.slice(0, 12);
+    return filterMenuItems(localizedItems, 'hot-coffee', deferredQuery);
+  }, [localizedItems, deferredQuery]);
 
   if (!open) return null;
 
@@ -92,7 +106,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="جستجو بین ۶۷ نوشیدنی (مثلاً لاته، چای زعفران، ماچا، نوتلا)"
+            placeholder={t.searchPlaceholder}
             className="w-full bg-transparent text-sm text-[#2F321C] placeholder:text-[#A8A29E] focus:outline-none"
           />
           <button
@@ -108,28 +122,24 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         <div className="eyvan-scroll max-h-[60vh] overflow-y-auto p-3">
           <p className="px-2 pb-2 text-xs text-[#A8A29E]">
             {query.trim()
-              ? `${toPersianDigits(results.length)} نتیجه یافت شد`
-              : 'پیشنهادهای محبوب روی میز ایوان'}
+              ? `${formatDigits(results.length)} ${t.resultsFoundSuffix}`
+              : t.popularSuggestions}
           </p>
 
           {results.length === 0 ? (
             <div className="py-10 text-center text-sm text-[#78716C]">
-              نوشیدنی با عبارت «{query}» پیدا نشد
+              {t.noSearchMatchPrefix}{query}{t.noSearchMatchSuffix}
             </div>
           ) : (
             <ul className="space-y-1">
-              {results.map((item, idx) => {
+              {results.map((item) => {
                 const basePrice = calculateItemPrice(
                   item,
                   getDefaultBean(item),
                   null,
                 );
                 return (
-                  <li
-                    key={item.id}
-                    className="eyvan-card-enter"
-                    style={{ animationDelay: `${Math.min(idx * 20, 200)}ms` }}
-                  >
+                  <li key={item.id}>
                     <button
                       type="button"
                       onClick={() => {
@@ -158,12 +168,12 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                           </p>
                           <p className="truncate text-xs text-[#A8A29E]">
                             {categoryNameMap.get(item.categoryId)}
-                            {item.supportsSyrup ? ' · قابل افزودن سیروپ' : ''}
+                            {item.supportsSyrup ? ` · ${t.syrupAvailableTag}` : ''}
                           </p>
                         </div>
                       </div>
                       <span className="tabular-fa shrink-0 text-xs font-medium text-[#6B7043]">
-                        {formatToman(basePrice)}
+                        {formatPrice(basePrice)}
                       </span>
                     </button>
                   </li>

@@ -4,16 +4,26 @@ import { Button } from '../../components/ui/button';
 import { FileUpload } from '../../components/ui/file-upload';
 
 /**
- * One photo slot in the item editor: shows the current image, lets the admin
- * pick a replacement, and previews it immediately. The file is resized in the
- * browser (max 1200px on the long edge) and handed up as a data URL — the
- * mock stores the data URL; the real upload arrives with the PHP backend.
- *
- * When `preserveTransparency` is set (the cutout slot), the resized image is
- * encoded as PNG so the transparent background survives; otherwise JPEG.
+ * One photo slot in the item editor: resizes the image in the browser
+ * (max 960px on the long edge) and encodes as compact WebP (which supports
+ * both transparency and small file sizes), falling back to PNG/JPEG only on
+ * legacy browsers that cannot encode WebP on canvas.
  */
 
-const MAX_EDGE = 1200;
+const MAX_EDGE = 960;
+
+function encodeCanvasOptimal(
+  canvas: HTMLCanvasElement,
+  preserveTransparency: boolean,
+): string {
+  const webp = canvas.toDataURL('image/webp', 0.84);
+  if (webp.startsWith('data:image/webp')) {
+    return webp;
+  }
+  return preserveTransparency
+    ? canvas.toDataURL('image/png')
+    : canvas.toDataURL('image/jpeg', 0.84);
+}
 
 function fileToDataUrl(
   file: File,
@@ -36,11 +46,7 @@ function fileToDataUrl(
           return;
         }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(
-          preserveTransparency
-            ? canvas.toDataURL('image/png')
-            : canvas.toDataURL('image/jpeg', 0.85),
-        );
+        resolve(encodeCanvasOptimal(canvas, preserveTransparency));
       };
       img.src = String(reader.result);
     };
@@ -92,7 +98,7 @@ export function PhotoSlot({
         accept="image/*"
         multiple={false}
         maxSize={8 * 1024 * 1024}
-        hint={hint ?? 'JPG ،PNG یا WebP — حداکثر ۸ مگابایت'}
+        hint={hint ?? 'JPG ،PNG یا WebP — تبدیل خودکار به WebP کم‌حجم'}
         onFiles={(files) => {
           const file = files[0];
           if (!file) return;

@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -23,28 +24,11 @@ import {
   MenuItem,
 } from '../data/menuData';
 import {
-  formatToman,
   groupMenuForSimpleView,
-  toPersianDigits,
 } from '../utils/menuLogic';
-import { AnimatedContent } from './AnimatedContent';
 import { FadeInImage, toThumbSrc } from './FadeInImage';
 import { InstagramIcon } from './InstagramIcon';
-
-/**
- * Off-screen cards skip rendering until near the viewport (P1-1):
- * `content-visibility: auto` + an intrinsic-size estimate close to the
- * real card height (~180px: 96–112px thumb row + paddings + the 41px
- * footer). The `auto` keyword remembers each card's real height after its
- * first render, so the estimate only applies before first paint — the
- * scrollbar length self-corrects as cards render. Applied to the <article>
- * (inside the AnimatedContent wrapper), never to the observed wrapper
- * itself, so the reveal observer always sees a laid-out box.
- */
-const CARD_STYLE: React.CSSProperties = {
-  contentVisibility: 'auto',
-  containIntrinsicSize: 'auto 180px',
-};
+import { localizeCategory, localizeItem, useLanguage } from '../i18n/LanguageContext';
 
 /** Intrinsic size of the 256px front thumbs (680×508 full-size → 256×191). */
 const THUMB_WIDTH = 256;
@@ -54,8 +38,6 @@ interface MenuItemCardProps {
   item: MenuItem;
   /** The bean the user picked for this item in the drawer (if any). */
   preferredBean: BeanType | undefined;
-  /** Stagger delay in seconds (50ms/card, capped at 400ms). */
-  delay: number;
   /** First-row cards load eagerly so the above-the-fold thumbs arrive first. */
   eager: boolean;
   onSelectItemDetails: (item: MenuItem) => void;
@@ -74,11 +56,11 @@ interface MenuItemCardProps {
 const MenuItemCard = React.memo(function MenuItemCard({
   item,
   preferredBean,
-  delay,
   eager,
   onSelectItemDetails,
   onInspectOnTable,
 }: MenuItemCardProps) {
+  const { t, formatPrice } = useLanguage();
   const hasDualBean =
     typeof item.priceBlend50 === 'number' &&
     typeof item.priceArabica100 === 'number';
@@ -87,15 +69,8 @@ const MenuItemCard = React.memo(function MenuItemCard({
     typeof item.priceArabica100 === 'number';
 
   return (
-    <AnimatedContent
-      distance={24}
-      duration={0.6}
-      delay={delay}
-      className="h-full"
-    >
       <article
         className="group flex h-full flex-col overflow-hidden rounded-[14px] border border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] transition-colors hover:border-[rgba(181,148,91,0.38)]"
-        style={CARD_STYLE}
       >
         {/* Top Row: Studio Eye-Level Photo + Name + Description */}
         <div className="flex gap-3.5 p-3.5">
@@ -155,7 +130,7 @@ const MenuItemCard = React.memo(function MenuItemCard({
                         : 'font-semibold text-[#6B7043]'
                     }`}
                   >
-                    ۵۰/۵۰: {formatToman(item.priceBlend50!)}
+                    {t.blend5050}: {formatPrice(item.priceBlend50!)}
                   </span>
                   <span
                     aria-hidden="true"
@@ -170,21 +145,21 @@ const MenuItemCard = React.memo(function MenuItemCard({
                         : 'text-[#57534E]'
                     }`}
                   >
-                    عربیکا: {formatToman(item.priceArabica100!)}
+                    {t.arabica100}: {formatPrice(item.priceArabica100!)}
                   </span>
                 </div>
               ) : isArabicaOnly ? (
                 <div className="flex items-center justify-between gap-2">
                   <span className="tabular-fa text-sm font-semibold text-[#6B7043]">
-                    {formatToman(item.priceArabica100!)}
+                    {formatPrice(item.priceArabica100!)}
                   </span>
                   <span className="text-[11px] text-[#9AA16A]">
-                    ۱۰۰٪ عربیکا
+                    {t.arabica100}
                   </span>
                 </div>
               ) : (
                 <span className="tabular-fa text-sm font-semibold text-[#6B7043]">
-                  {formatToman(item.price ?? 0)}
+                  {formatPrice(item.price ?? 0)}
                 </span>
               )}
             </div>
@@ -204,8 +179,8 @@ const MenuItemCard = React.memo(function MenuItemCard({
             />
             <span>
               {item.supportsSyrup
-                ? 'سیروپ و جزئیات'
-                : 'جزئیات محصول'}
+                ? t.syrupAndDetails
+                : t.productDetails}
             </span>
           </button>
 
@@ -215,11 +190,10 @@ const MenuItemCard = React.memo(function MenuItemCard({
             className="inline-flex items-center gap-1.5 text-xs text-[#78716C] transition-colors hover:text-[#2F321C]"
           >
             <Disc className="h-3.5 w-3.5" strokeWidth={1.6} />
-            <span>نمایش روی میز</span>
+            <span>{t.showOnTable}</span>
           </button>
         </div>
       </article>
-    </AnimatedContent>
   );
 });
 
@@ -244,7 +218,9 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
   onOpenMobileCategories,
   onReady,
 }) => {
+  const { lang, t, cafeInfo, formatDigits } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   // Stable card callbacks (P1-2): App passes `onSelectItemDetails` as a
   // fresh inline arrow on every render (App.tsx), which would defeat the
@@ -284,15 +260,24 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
     onReady?.();
   }, [onReady]);
 
+  const localizedCategories = useMemo(
+    () => MENU_CATEGORIES.map((c) => localizeCategory(c, lang)),
+    [lang],
+  );
+  const localizedItems = useMemo(
+    () => MENU_ITEMS.map((i) => localizeItem(i, lang)),
+    [lang],
+  );
+
   const sections = useMemo(
     () =>
       groupMenuForSimpleView(
-        MENU_CATEGORIES,
-        MENU_ITEMS,
+        localizedCategories,
+        localizedItems,
         selectedCategory,
-        searchQuery,
+        deferredSearchQuery,
       ),
-    [selectedCategory, searchQuery],
+    [localizedCategories, localizedItems, selectedCategory, deferredSearchQuery],
   );
 
   const totalVisibleItems = useMemo(
@@ -307,13 +292,13 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
         <div className="flex flex-col gap-5 border-b border-[rgba(107,112,67,0.1)] pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-medium text-[#6B7043]">
-              منوی ساده و دسته‌بندی‌شده · کافه و رستوران ایوان
+              {t.simpleMenuEyebrow}
             </p>
             <h1 className="mt-1.5 text-2xl font-semibold text-[#2F321C] sm:text-3xl">
-              فهرست کامل نوشیدنی‌ها و بخش‌های منو
+              {t.simpleMenuHeading}
             </h1>
             <p className="mt-1.5 text-xs leading-6 text-[#78716C] sm:text-sm">
-              {CAFE_INFO.paymentNote} · تمامی قیمت‌ها بدون صفر و به تومان درج شده است
+              {cafeInfo.paymentNote} · {t.simpleMenuSubPrefix}
             </p>
           </div>
 
@@ -326,7 +311,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="جستجو در منو (لاته، موهیتو، چای کرک...)"
+              placeholder={t.simpleSearchPlaceholder}
               aria-label="جستجو در منوی ساده"
               className="w-full rounded-[10px] border border-[rgba(107,112,67,0.14)] bg-[#FFFFFF] py-2.5 pr-10 pl-9 text-sm text-[#2F321C] placeholder:text-[#A8A29E] focus:border-[#B5945B] focus:outline-none"
             />
@@ -353,7 +338,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[10px] border border-[rgba(181,148,91,0.45)] bg-[#6B7043] px-3 text-xs font-medium text-white transition-colors hover:bg-[#4F5330] md:hidden"
             >
               <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.7} />
-              <span>دسته‌ها</span>
+              <span>{t.categoriesBtn}</span>
             </button>
 
             <div className="eyvan-scroll-hidden flex flex-1 items-center gap-1.5 overflow-x-auto">
@@ -366,10 +351,10 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                     : 'border border-transparent bg-[#FFFFFF] text-[#57534E] hover:bg-[#E8EAD9] hover:text-[#2F321C]'
                 }`}
               >
-                همه بخش‌ها
+                {t.allSections}
               </button>
 
-              {MENU_CATEGORIES.map((category) => {
+              {localizedCategories.map((category) => {
                 const isActive = selectedCategory === category.id;
                 return (
                   <button
@@ -385,7 +370,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                     <span>{category.shortName}</span>
                     {category.comingSoon && (
                       <span className="text-[10px] font-normal text-[#9AA16A]">
-                        به‌زودی
+                        {t.comingSoon}
                       </span>
                     )}
                   </button>
@@ -399,8 +384,8 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
         {searchQuery.trim() && (
           <p className="mt-5 text-xs text-[#78716C]">
             {totalVisibleItems > 0
-              ? `${toPersianDigits(totalVisibleItems)} محصول منطبق با «${searchQuery.trim()}»`
-              : `محصولی با عبارت «${searchQuery.trim()}» یافت نشد`}
+              ? `${formatDigits(totalVisibleItems)} ${t.resultsFoundSuffix}: «${searchQuery.trim()}»`
+              : `${t.noSearchMatchPrefix}${searchQuery.trim()}${t.noSearchMatchSuffix}`}
           </p>
         )}
 
@@ -408,7 +393,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
         {sections.length === 0 ? (
           <div className="mt-10 rounded-[16px] border border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] px-6 py-12 text-center">
             <p className="text-sm font-medium text-[#2F321C]">
-              نتیجه‌ای برای جستجوی شما پیدا نشد
+              {t.noResultsSimple}
             </p>
             <button
               type="button"
@@ -418,7 +403,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
               }}
               className="mt-4 rounded-[10px] bg-[#6B7043] px-4 py-2 text-xs font-medium text-[#F8F7F2] transition-colors hover:bg-[#4F5330]"
             >
-              نمایش همه محصولات
+              {t.showAllProducts}
             </button>
           </div>
         ) : (
@@ -430,7 +415,7 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                 className="scroll-mt-32"
               >
                 {/* Section Header */}
-                <AnimatedContent distance={20} duration={0.6}>
+                
                   <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-[rgba(107,112,67,0.1)] pb-3.5">
                     <div>
                       <div className="flex items-center gap-2.5">
@@ -442,11 +427,11 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                         </h2>
                         {category.comingSoon ? (
                           <span className="text-xs font-medium text-[#9AA16A]">
-                            · به‌زودی
+                            · {t.comingSoon}
                           </span>
                         ) : (
                           <span className="tabular-fa text-xs text-[#78716C]">
-                            ({toPersianDigits(items.length)} مورد)
+                            ({formatDigits(items.length)} {t.itemCountUnit})
                           </span>
                         )}
                       </div>
@@ -461,19 +446,19 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                           className="h-3.5 w-3.5 shrink-0 text-[#6B7043]"
                           strokeWidth={1.6}
                         />
-                        <span>{CAFE_INFO.milkTempNote}</span>
+                        <span>{cafeInfo.milkTempNote}</span>
                       </div>
                     )}
                   </div>
-                </AnimatedContent>
+                
 
                 {/* Coming Soon Card vs Active Item Grid */}
                 {category.comingSoon ? (
-                  <AnimatedContent distance={24} duration={0.6} delay={0.05}>
+                  
                     <div className="flex flex-col justify-between gap-4 rounded-[16px] border border-[rgba(154,161,106,0.28)] bg-[#FFFFFF] p-6 sm:flex-row sm:items-center">
                       <div className="max-w-2xl">
                         <p className="text-xs font-medium text-[#9AA16A]">
-                          آشپزخانه کافه و رستوران ایوان · به‌زودی
+                          آشپزخانه کافه و رستوران ایوان · {t.comingSoon}
                         </p>
                         <p className="mt-2 text-sm leading-7 text-[#57534E]">
                           {category.comingSoonDescription}
@@ -486,10 +471,10 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                         className="inline-flex shrink-0 items-center gap-2 self-start rounded-[10px] border border-[rgba(181,148,91,0.36)] bg-[#FFFFFF] px-4 py-2.5 text-xs font-medium text-[#2F321C] transition-colors hover:border-[#B5945B] sm:self-center"
                       >
                         <InstagramIcon className="h-4 w-4 text-[#6B7043]" />
-                        <span>اطلاع از رونمایی</span>
+                        <span>{t.notifyLaunch}</span>
                       </a>
                     </div>
-                  </AnimatedContent>
+                  
                 ) : (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {items.map((item, idx) => (
@@ -497,7 +482,6 @@ export const SimpleMenuView: React.FC<SimpleMenuViewProps> = ({
                         key={item.id}
                         item={item}
                         preferredBean={selectedBeans[item.id]}
-                        delay={Math.min(idx * 0.05, 0.4)}
                         eager={sectionIdx === 0 && idx < 3}
                         onSelectItemDetails={handleSelectItemDetails}
                         onInspectOnTable={handleInspectOnTable}

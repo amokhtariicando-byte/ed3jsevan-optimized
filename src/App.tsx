@@ -1,5 +1,6 @@
 import React, {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -13,6 +14,7 @@ import {
   Clock,
   Disc,
   Eye,
+  Globe,
   LayoutGrid,
   List,
   MapPin,
@@ -31,15 +33,17 @@ import {
 } from './data/menuData';
 import {
   calculateItemPrice,
-  formatToman,
   getBackdropHex,
   getDefaultBean,
-  toPersianDigits,
 } from './utils/menuLogic';
 import { EyvanLogo } from './components/EyvanLogo';
 import { SplashScreen } from './components/SplashScreen';
 import { CameraAngle, RotaryTableStage } from './components/RotaryTableStage';
 import { InstagramIcon } from './components/InstagramIcon';
+import { preloadAndDecodeImage, toThumbSrc } from './components/FadeInImage';
+import { prefersReducedMotion } from './utils/motion';
+import { getDeviceProfile } from './utils/deviceTier';
+import { localizeCategory, localizeItem, useLanguage } from './i18n/LanguageContext';
 
 const SimpleMenuView = lazy(() =>
   import('./components/SimpleMenuView').then((m) => ({
@@ -72,12 +76,7 @@ const AdminApp = lazy(() =>
 
 type ViewMode = 'table' | 'simple';
 
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  );
-}
+
 
 /**
  * Jump to the top of the page synchronously, with no animation.
@@ -155,19 +154,19 @@ function CrossfadeText({
     node: React.ReactNode;
   } | null>(null);
   const lastRef = useRef({ key: itemKey, node: children });
+  const latestChildrenRef = useRef(children);
+  latestChildrenRef.current = children;
 
   useEffect(() => {
     const prev = lastRef.current;
-    // Always refresh the snapshot, even when the key didn't change, so a
-    // bean-switch price update is what the next crossfade fades out from.
-    lastRef.current = { key: itemKey, node: children };
+    lastRef.current = { key: itemKey, node: latestChildrenRef.current };
     if (prev.key === itemKey) return;
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion() || !getDeviceProfile().enableCrossfade) {
       setOutgoing(null);
       return;
     }
     setOutgoing({ key: prev.key, node: prev.node });
-  }, [itemKey, children]);
+  }, [itemKey]);
 
   useEffect(() => {
     if (!outgoing) return;
@@ -196,7 +195,83 @@ function CrossfadeText({
   );
 }
 
+/**
+ * Isolated zero-App-rerender background tone crossfade layer.
+ * Uses direct DOM style writes on two layers so changing backdrop tone
+ * never triggers the 4x cascading re-render on the 1300-line App tree.
+ */
+const BackdropToneLayer = memo(function BackdropToneLayer({
+  hex,
+  active,
+}: {
+  hex: string;
+  active: boolean;
+}) {
+  const baseRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const committedHexRef = useRef<string>(hex);
+
+  useEffect(() => {
+    const baseEl = baseRef.current;
+    const overlayEl = overlayRef.current;
+    if (!baseEl || !overlayEl) return;
+
+    if (!active) {
+      committedHexRef.current = hex;
+      baseEl.style.backgroundColor = hex;
+      overlayEl.style.opacity = '0';
+      return;
+    }
+
+    if (hex === committedHexRef.current) return;
+
+    overlayEl.style.backgroundColor = hex;
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        if (overlayRef.current) {
+          overlayRef.current.style.opacity = '1';
+        }
+      });
+    });
+
+    const timer = window.setTimeout(() => {
+      committedHexRef.current = hex;
+      if (baseRef.current) baseRef.current.style.backgroundColor = hex;
+      if (overlayRef.current) overlayRef.current.style.opacity = '0';
+    }, BG_FADE_MS + 40);
+
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+      window.clearTimeout(timer);
+    };
+  }, [hex, active]);
+
+  return (
+    <>
+      <div
+        ref={baseRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 -z-10"
+        style={{ backgroundColor: committedHexRef.current }}
+      />
+      {active && (
+        <div
+          ref={overlayRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 transition-opacity duration-400 ease-out"
+          style={{ opacity: 0 }}
+        />
+      )}
+    </>
+  );
+});
+
 export default function App() {
+  const { lang, toggleLang, t, cafeInfo, formatDigits, formatPrice } = useLanguage();
+  const deviceProfile = getDeviceProfile();
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [activeCategoryId, setActiveCategoryId] =
     useState<CategoryId>('hot-coffee');
@@ -248,6 +323,7 @@ export default function App() {
   // narrowing `window` to `never` in the fallback branch: lib.dom declares
   // requestIdleCallback as always present, but Safari doesn't implement it.
   useEffect(() => {
+    if (!deviceProfile.allowIdlePreload) return;
     const preload = () => {
       import('./components/SimpleMenuView').catch(() => {
         // A failed preload is simply retried when the user switches views.
@@ -305,17 +381,36 @@ export default function App() {
   );
 
   const lastKeyStepRef = useRef<number>(0);
+  const cardSwipeRef = useRef<{ x: number; y: number } | null>(null);
+
+  const warmCategoryPlates = useCallback((catId: CategoryId) => {
+    const mobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+    const urls = new Set(
+      MENU_ITEMS.filter((i) => i.categoryId === catId).map((i) =>
+        mobile ? toThumbSrc(i.image) : i.image,
+      ),
+    );
+    for (const u of urls) preloadAndDecodeImage(u);
+  }, []);
+
+  const localizedCategories = useMemo(
+    () => MENU_CATEGORIES.map((c) => localizeCategory(c, lang)),
+    [lang],
+  );
 
   const activeCategory = useMemo(
     () =>
-      MENU_CATEGORIES.find((c) => c.id === activeCategoryId) ??
-      MENU_CATEGORIES[0],
-    [activeCategoryId],
+      localizedCategories.find((c) => c.id === activeCategoryId) ??
+      localizedCategories[0],
+    [localizedCategories, activeCategoryId],
   );
 
   const categoryItems = useMemo(
-    () => MENU_ITEMS.filter((item) => item.categoryId === activeCategoryId),
-    [activeCategoryId],
+    () =>
+      MENU_ITEMS.filter((item) => item.categoryId === activeCategoryId).map(
+        (item) => localizeItem(item, lang),
+      ),
+    [activeCategoryId, lang],
   );
 
   const safeIndex =
@@ -359,49 +454,7 @@ export default function App() {
   // Opacity-only fades are deliberately kept under prefers-reduced-motion
   // (same precedent as .eyvan-view-enter and the overlay backdrops in
   // index.css), so there is no motion guard here.
-  const [bgBase, setBgBase] = useState(backdropHex);
-  const [bgOverlay, setBgOverlay] = useState<{hex: string; on: boolean}>({
-    hex: backdropHex,
-    on: false,
-  });
-  useEffect(() => {
-    if (backdropHex === bgBase && !bgOverlay.on) return;
-    if (viewMode === 'simple') {
-      // Instant commit: the simple menu's in-flow content would sit UNDER
-      // a positioned overlay layer, and the view-loading overlay covers
-      // the switch, so no crossfade is visible or needed here.
-      setBgBase(backdropHex);
-      setBgOverlay((prev) => (prev.on ? {...prev, on: false} : prev));
-      return;
-    }
-    let raf = 0;
-    if (!bgOverlay.on) {
-      // Mount the overlay transparent, then fade it in on the next frame
-      // — setting opacity in the same commit as the mount would skip the
-      // transition (no starting style to animate from). Double rAF: the
-      // first frame paints the transparent layer, the second starts the
-      // fade.
-      setBgOverlay({hex: backdropHex, on: false});
-      raf = window.requestAnimationFrame(() => {
-        raf = window.requestAnimationFrame(() =>
-          setBgOverlay({hex: backdropHex, on: true}),
-        );
-      });
-    } else {
-      // Overlay already up (rapid stepping): just retarget its color — one
-      // instant repaint of that layer — and restart the commit timer.
-      // Resetting opacity to 0 mid-fade would flicker.
-      setBgOverlay({hex: backdropHex, on: true});
-    }
-    const timer = window.setTimeout(() => {
-      setBgBase(backdropHex);
-      setBgOverlay((prev) => ({...prev, on: false}));
-    }, BG_FADE_MS + 50);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.clearTimeout(timer);
-    };
-  }, [backdropHex, bgBase, bgOverlay.on, viewMode]);
+  // Backdrop tone crossfade is isolated inside <BackdropToneLayer />.
 
   // Keep the active category pill centered horizontally inside its own scroll rail (without ever vertically scrolling the page!)
   useEffect(() => {
@@ -521,6 +574,10 @@ export default function App() {
     setViewLoading(false);
   }, []);
 
+  const handleOpenMobileCategories = useCallback(() => {
+    setMobileCatsOpen(true);
+  }, []);
+
   const handleToggleViewMode = useCallback(() => {
     // Jump to the top synchronously BEFORE the view swaps, in BOTH
     // directions (see scrollToTopInstant). The old code scrolled smoothly
@@ -605,10 +662,10 @@ export default function App() {
   const drawerCategoryName = useMemo(() => {
     if (!drawerItem) return activeCategory.name;
     return (
-      MENU_CATEGORIES.find((c) => c.id === drawerItem.categoryId)?.name ??
+      localizedCategories.find((c) => c.id === drawerItem.categoryId)?.name ??
       activeCategory.name
     );
-  }, [drawerItem, activeCategory.name]);
+  }, [drawerItem, activeCategory.name, localizedCategories]);
 
   if (isAdmin) {
     return (
@@ -621,24 +678,9 @@ export default function App() {
   return (
     <div
       className="relative min-h-screen w-full overflow-x-hidden text-[#2F321C]"
-      style={{ backgroundColor: bgBase }}
+      style={{ backgroundColor: viewMode === 'simple' ? '#F8F7F2' : undefined }}
     >
-      {/* Background tone crossfade layer (P1-6): opacity-only, driven by
-      the effect above. First child + no z-index, so every positioned piece
-      of table content paints above it; pointer-events-none + aria-hidden
-      so it never intercepts taps or screen readers. Mounted only in table
-      view: the simple menu's content is in-flow (non-positioned), so a
-      positioned overlay would paint ABOVE it — and unmounting here also
-      avoids a 400ms fade-out veil if the user switches views mid-fade. */}
-      {viewMode === 'table' && (
-        <div
-          aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 transition-opacity duration-400 ease-out ${
-            bgOverlay.on ? 'opacity-100' : 'opacity-0'
-          }`}
-          style={{ backgroundColor: bgOverlay.hex }}
-        />
-      )}
+      <BackdropToneLayer hex={backdropHex} active={viewMode === 'table'} />
       {splash !== 'gone' && <SplashScreen leaving={splash === 'leaving'} />}
       {/* View-switch loading overlay: rendered at App root level, OUTSIDE
       the `.eyvan-view-enter` div — an ancestor with opacity < 1 becomes the
@@ -683,7 +725,7 @@ export default function App() {
                   overviewMode ? 'text-[#6B7043]' : ''
                 }`}
               >
-                نمای کلی میز
+                {t.overviewTable}
               </button>
             )}
             <button
@@ -691,14 +733,14 @@ export default function App() {
               onClick={() => setSearchOpen(true)}
               className="whitespace-nowrap shrink-0 transition-colors hover:text-[#2F321C]"
             >
-              جستجو
+              {t.search}
             </button>
             <button
               type="button"
               onClick={() => setInfoOpen(true)}
               className="whitespace-nowrap shrink-0 transition-colors hover:text-[#2F321C]"
             >
-              مشخصات و نشانی
+              {t.cafeInfo}
             </button>
             <a
               href={CAFE_INFO.instagramUrl}
@@ -707,12 +749,21 @@ export default function App() {
               className="inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors hover:text-[#6B7043]"
             >
               <InstagramIcon className="h-4 w-4" />
-              <span>اینستاگرام</span>
+              <span>{t.instagram}</span>
             </a>
           </nav>
 
-          {/* Zone 3: Mode Switcher — Simple Menu (منوی ساده) <-> Rotary Table (میز دوّار) */}
+          {/* Zone 3: Language Switcher (FA <-> AR) + Mode Switcher */}
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleLang}
+              aria-label={t.switchLangAria}
+              className="inline-flex items-center gap-1.5 rounded-[10px] border border-[rgba(107,112,67,0.2)] bg-[#F8F7F2] px-2.5 py-2 text-xs font-medium text-[#2F321C] transition-colors hover:border-[#B5945B] hover:bg-[#E8EAD9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B7043] whitespace-nowrap shrink-0 sm:px-3"
+            >
+              <Globe className="h-3.5 w-3.5 text-[#6B7043]" strokeWidth={1.7} />
+              <span>{t.langShort}</span>
+            </button>
             <button
               type="button"
               onClick={handleToggleViewMode}
@@ -724,7 +775,7 @@ export default function App() {
                     className="h-4 w-4 text-[#6B7043]"
                     strokeWidth={1.7}
                   />
-                  <span>منوی ساده</span>
+                  <span>{t.simpleMenu}</span>
                 </>
               ) : (
                 <>
@@ -732,7 +783,7 @@ export default function App() {
                     className="h-4 w-4 text-[#6B7043]"
                     strokeWidth={1.7}
                   />
-                  <span>میز دوّار</span>
+                  <span>{t.rotaryTable}</span>
                 </>
               )}
             </button>
@@ -755,7 +806,7 @@ export default function App() {
               selectedBeans={selectedBeans}
               onSelectItemDetails={handleSelectItemDetails}
               onInspectOnTable={handleJumpToTableItem}
-              onOpenMobileCategories={() => setMobileCatsOpen(true)}
+              onOpenMobileCategories={handleOpenMobileCategories}
               onReady={handleSimpleMenuReady}
             />
           </Suspense>
@@ -774,11 +825,11 @@ export default function App() {
                 className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-[rgba(181,148,91,0.55)] bg-[#6B7043] px-2.5 text-[11.5px] font-medium text-white whitespace-nowrap transition-colors hover:bg-[#4F5330]"
               >
                 <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.8} />
-                <span>دسته‌ها</span>
+                <span>{t.categoriesBtn}</span>
               </button>
 
               <div className="eyvan-scroll-hidden flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-                {MENU_CATEGORIES.map((category) => {
+                {localizedCategories.map((category) => {
                   const isActive = category.id === activeCategoryId;
                   return (
                     <button
@@ -787,6 +838,8 @@ export default function App() {
                         mobileDockButtonsRef.current[category.id] = el;
                       }}
                       type="button"
+                      onPointerDown={() => warmCategoryPlates(category.id)}
+                      onMouseEnter={() => warmCategoryPlates(category.id)}
                       onClick={() => handleSelectCategory(category.id)}
                       aria-current={isActive ? 'page' : undefined}
                       className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-[8px] px-2.5 text-[11.5px] font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B7043] ${
@@ -798,7 +851,7 @@ export default function App() {
                       <span>{category.shortName}</span>
                       {category.comingSoon && (
                         <span className="text-[9.5px] font-normal text-[#6B7043]">
-                          به‌زودی
+                          {t.comingSoon}
                         </span>
                       )}
                     </button>
@@ -848,7 +901,7 @@ export default function App() {
           {overviewMode && (
             <div className="eyvan-text-enter pointer-events-none fixed inset-x-0 top-[108px] z-20 flex justify-center px-4 lg:top-[72px]">
               <div className="pointer-events-auto flex items-center gap-3.5 rounded-[12px] border border-[rgba(107,112,67,0.16)] bg-[#F8F7F2]/94 px-4 py-1.5 text-xs text-[#2F321C]">
-                <span>نمای کلی میز · {activeCategory.name}</span>
+                <span>{t.overviewBarPrefix} · {activeCategory.name}</span>
                 <span aria-hidden="true" className="text-[#A8A29E]">
                   ·
                 </span>
@@ -857,7 +910,7 @@ export default function App() {
                   onClick={() => setOverviewMode(false)}
                   className="font-medium text-[#6B7043] transition-colors hover:text-[#4F5330]"
                 >
-                  بازگشت به نمایش تکی
+                  {t.backToSingleView}
                 </button>
               </div>
             </div>
@@ -866,13 +919,30 @@ export default function App() {
           {/* Layer 2: Right-Side Editorial Product Showcase (Desktop RTL Right / Mobile Lower Sheet) */}
           <section
             aria-label="جزئیات محصول انتخاب‌شده روی میز"
-            className={`eyvan-showcase-panel pointer-events-none relative z-20 mx-auto flex h-full max-w-[1440px] flex-col justify-end px-3 pt-28 pb-3 transition-[opacity,transform] duration-300 ease-out sm:px-6 lg:flex-row lg:items-center lg:justify-start lg:px-12 lg:pt-16 lg:pb-16 ${
+            className={`eyvan-showcase-panel pointer-events-none relative z-20 mx-auto flex h-full max-w-[1440px] flex-col justify-end px-3 pt-28 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-[opacity,transform] duration-300 ease-out sm:px-6 lg:flex-row lg:items-center lg:justify-start lg:px-12 lg:pt-16 lg:pb-16 ${
               overviewMode
                 ? 'translate-y-4 opacity-0'
                 : 'translate-y-0 opacity-100'
             }`}
           >
             <div
+              onTouchStart={(e) => {
+                if (overviewMode || activeCategory.comingSoon || categoryItems.length <= 1) return;
+                const touch = e.touches[0];
+                if (touch) cardSwipeRef.current = { x: touch.clientX, y: touch.clientY };
+              }}
+              onTouchEnd={(e) => {
+                const start = cardSwipeRef.current;
+                cardSwipeRef.current = null;
+                if (!start || overviewMode || activeCategory.comingSoon || categoryItems.length <= 1) return;
+                const touch = e.changedTouches[0];
+                if (!touch) return;
+                const dx = touch.clientX - start.x;
+                const dy = touch.clientY - start.y;
+                if (Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+                  handleStepItem(dx > 0 ? -1 : 1);
+                }
+              }}
               className={`pointer-events-auto w-full max-w-[460px] rounded-[18px] border border-[rgba(107,112,67,0.12)] bg-[#F8F7F2]/94 px-4 py-3.5 lg:max-w-[440px] lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0 ${
                 overviewMode ? 'pointer-events-none' : ''
               }`}
@@ -884,9 +954,9 @@ export default function App() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-xs font-medium text-[#6B7043]">
-                      <span>آشپزخانه کافه و رستوران ایوان</span>
+                      <span>{t.eyvanKitchen}</span>
                       <span aria-hidden="true">·</span>
-                      <span>به‌زودی</span>
+                      <span>{t.comingSoon}</span>
                     </div>
                     <div className="flex items-center gap-1.5 lg:hidden">
                       <button
@@ -922,7 +992,7 @@ export default function App() {
                       onClick={() => handleSelectCategory('hot-coffee')}
                       className="rounded-[10px] bg-[#6B7043] px-4 py-2.5 text-xs font-medium text-[#F8F7F2] transition-colors hover:bg-[#4F5330] sm:px-5 sm:text-sm"
                     >
-                      مشاهده بار قهوه گرم
+                      {t.viewHotCoffee}
                     </button>
                     <a
                       href={CAFE_INFO.instagramUrl}
@@ -931,7 +1001,7 @@ export default function App() {
                       className="inline-flex items-center gap-2 rounded-[10px] border border-[rgba(107,112,67,0.22)] bg-[#FFFFFF]/80 px-3.5 py-2.5 text-xs text-[#2F321C] transition-colors hover:border-[#B5945B] sm:px-4 sm:text-sm"
                     >
                       <InstagramIcon className="h-4 w-4 text-[#6B7043]" />
-                      <span>اطلاع از رونمایی در اینستاگرام</span>
+                      <span>{t.followLaunchInstagram}</span>
                     </a>
                   </div>
                 </div>
@@ -945,8 +1015,8 @@ export default function App() {
                         ·
                       </span>
                       <span className="tabular-fa text-[#57534E]">
-                        {toPersianDigits(safeIndex + 1)} از{' '}
-                        {toPersianDigits(categoryItems.length)}
+                        {formatDigits(safeIndex + 1)} {t.ofWord}{' '}
+                        {formatDigits(categoryItems.length)}
                       </span>
                       {activeItem.highlight && (
                         <>
@@ -975,7 +1045,7 @@ export default function App() {
                           className="h-3.5 w-3.5 text-[#6B7043]"
                           strokeWidth={1.7}
                         />
-                        <span>نمای کلی</span>
+                        <span>{t.overviewShort}</span>
                       </button>
                       <button
                         type="button"
@@ -1014,11 +1084,11 @@ export default function App() {
                   <div className="flex flex-wrap items-center justify-between gap-2.5 border-y border-[rgba(107,112,67,0.13)] py-2.5 lg:py-3">
                     <div>
                       <span className="block text-[10.5px] text-[#78716C] lg:text-[11px]">
-                        قیمت بدون صفر
+                        {t.priceNoZeros}
                       </span>
                       <CrossfadeText itemKey={activeItem.id}>
                         <div className="tabular-fa mt-0.5 text-[22px] font-semibold text-[#6B7043] lg:text-[28px]">
-                          {formatToman(activeUnitPrice)}
+                          {formatPrice(activeUnitPrice)}
                         </div>
                       </CrossfadeText>
                     </div>
@@ -1040,7 +1110,7 @@ export default function App() {
                               : 'text-[#57534E] hover:text-[#2F321C]'
                           }`}
                         >
-                          ۵۰٪/۵۰٪
+                          {t.blend5050}
                         </button>
                         <button
                           type="button"
@@ -1053,12 +1123,12 @@ export default function App() {
                               : 'text-[#57534E] hover:text-[#2F321C]'
                           }`}
                         >
-                          ۱۰۰٪ عربیکا
+                          {t.arabica100}
                         </button>
                       </div>
                     ) : isArabicaOnly ? (
                       <span className="text-xs font-medium text-[#6B7043]">
-                        سرو اختصاصی با ۱۰۰٪ عربیکا
+                        {t.arabicaExclusive}
                       </span>
                     ) : null}
                   </div>
@@ -1083,15 +1153,15 @@ export default function App() {
                       {cameraAngle === 'front' ? (
                         <>
                           <RotateCcw className="h-3.5 w-3.5 shrink-0 lg:h-4 lg:w-4" strokeWidth={1.7} />
-                          <span>بازگشت به نمای بالا</span>
+                          <span>{t.backToTopView}</span>
                         </>
                       ) : (
                         <>
                           <Eye className="h-3.5 w-3.5 shrink-0 lg:h-4 lg:w-4" strokeWidth={1.7} />
                           <span>
                             {activeItem.prefersFrontView
-                              ? 'مشاهده نمای روبه‌رو'
-                              : 'نمای روبه‌رو لیوان'}
+                              ? t.viewFrontAngle
+                              : t.frontCupView}
                           </span>
                         </>
                       )}
@@ -1112,8 +1182,8 @@ export default function App() {
                       />
                       <span>
                         {activeItem.supportsSyrup
-                          ? 'سیروپ و جزئیات'
-                          : 'جزئیات محصول'}
+                          ? t.syrupAndDetails
+                          : t.productDetails}
                       </span>
                     </button>
                   </div>
@@ -1126,7 +1196,7 @@ export default function App() {
                           className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#6B7043]"
                           strokeWidth={1.6}
                         />
-                        <span>{CAFE_INFO.milkTempNote}</span>
+                        <span>{cafeInfo.milkTempNote}</span>
                       </p>
                     )}
 
@@ -1160,14 +1230,36 @@ export default function App() {
                       className="hidden items-center gap-1.5 text-xs font-medium text-[#6B7043] transition-colors hover:text-[#4F5330] lg:inline-flex"
                     >
                       <Disc className="h-3.5 w-3.5" strokeWidth={1.7} />
-                      <span>نمای کامل سینی</span>
+                      <span>{t.fullTrayView}</span>
                     </button>
 
-                    <span className="text-[11px] text-[#78716C] lg:hidden">
-                      {cameraAngle === 'front'
-                        ? 'برای چرخش میز بکشید یا روی نوشیدنی کناری بزنید'
-                        : 'برای چرخش میز بکشید · روی نوشیدنی بزنید'}
-                    </span>
+                    {/* Interactive pagination dots on mobile for effortless one-thumb navigation */}
+                    {categoryItems.length > 1 && (
+                      <div
+                        className="flex items-center gap-1.5 lg:hidden"
+                        role="tablist"
+                        aria-label={activeCategory.name}
+                      >
+                        {categoryItems.map((it, idx) => {
+                          const activeDot = idx === safeIndex;
+                          return (
+                            <button
+                              key={it.id}
+                              type="button"
+                              role="tab"
+                              aria-selected={activeDot}
+                              aria-label={it.name}
+                              onClick={() => handleSelectIndex(idx)}
+                              className={`h-2 rounded-full transition-[width,background-color] duration-200 ${
+                                activeDot
+                                  ? 'w-5 bg-[#6B7043]'
+                                  : 'w-2 bg-[#6B7043]/25 hover:bg-[#6B7043]/50'
+                              }`}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -1181,7 +1273,7 @@ export default function App() {
           >
             <div className="pointer-events-auto flex h-[52px] w-auto max-w-[1180px] items-center gap-1.5 rounded-[14px] border border-[rgba(107,112,67,0.16)] bg-[#FFFFFF]/95 p-1.5 shadow-xl">
               <div className="eyvan-scroll-hidden flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-                {MENU_CATEGORIES.map((category) => {
+                {localizedCategories.map((category) => {
                   const isActive = category.id === activeCategoryId;
                   return (
                     <button
@@ -1190,6 +1282,8 @@ export default function App() {
                         dockButtonsRef.current[category.id] = el;
                       }}
                       type="button"
+                      onPointerDown={() => warmCategoryPlates(category.id)}
+                      onMouseEnter={() => warmCategoryPlates(category.id)}
                       onClick={() => handleSelectCategory(category.id)}
                       aria-current={isActive ? 'page' : undefined}
                       className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[10px] px-3 text-xs font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B7043] ${
@@ -1201,7 +1295,7 @@ export default function App() {
                       <span>{category.shortName}</span>
                       {category.comingSoon && (
                         <span className="text-[10px] font-normal text-[#6B7043]">
-                          به‌زودی
+                          {t.comingSoon}
                         </span>
                       )}
                     </button>
@@ -1219,6 +1313,7 @@ export default function App() {
         className={`relative z-20 border-t border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] px-5 pt-12 sm:px-8 lg:px-12 ${
           viewMode === 'table' ? 'pb-24' : 'pb-12'
         }`}
+        style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 320px' }}
       >
         <div className="mx-auto flex max-w-[1320px] flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div className="flex flex-col items-start gap-3">
@@ -1228,25 +1323,24 @@ export default function App() {
               className="items-start text-right"
             />
             <p className="max-w-sm text-xs leading-6 text-[#78716C]">
-              {CAFE_INFO.tagline}
+              {cafeInfo.tagline}
             </p>
             <p className="text-xs text-[#6B7043]">
-              {CAFE_INFO.paymentNote} · تمامی قیمت‌ها به تومان بدون صفرهای اضافه
-              است.
+              {cafeInfo.paymentNote} · {t.priceTomanNote}
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-6 text-xs text-[#57534E] sm:grid-cols-2 sm:gap-10">
             <div className="space-y-3">
               <p className="text-sm font-medium text-[#2F321C]">
-                اطلاعات و ساعات کاری
+                {t.infoAndHours}
               </p>
               <div className="flex items-center gap-2">
                 <Clock
                   className="h-4 w-4 shrink-0 text-[#6B7043]"
                   strokeWidth={1.5}
                 />
-                <span className="tabular-fa">{CAFE_INFO.hours}</span>
+                <span className="tabular-fa">{cafeInfo.hours}</span>
               </div>
               <div className="flex items-start gap-2">
                 <MapPin
@@ -1258,14 +1352,14 @@ export default function App() {
                   onClick={() => setInfoOpen(true)}
                   className="text-right transition-colors hover:text-[#6B7043]"
                 >
-                  {CAFE_INFO.addressStatus}
+                  {cafeInfo.addressStatus}
                 </button>
               </div>
             </div>
 
             <div className="space-y-3">
               <p className="text-sm font-medium text-[#2F321C]">
-                ارتباط و استاندارد سرو
+                {t.contactAndStandard}
               </p>
               <a
                 href={CAFE_INFO.instagramUrl}
@@ -1277,7 +1371,7 @@ export default function App() {
                 <span dir="ltr">{CAFE_INFO.instagramHandle}</span>
               </a>
               <p className="max-w-xs leading-6 text-[#78716C]">
-                {CAFE_INFO.milkTempNote}
+                {cafeInfo.milkTempNote}
               </p>
             </div>
           </div>
@@ -1288,7 +1382,7 @@ export default function App() {
       {drawerItem && (
         <Suspense fallback={<SplashScreen compact />}>
           <DrinkCustomizeDrawer
-            item={drawerItem}
+            item={localizeItem(drawerItem, lang)}
             categoryName={drawerCategoryName}
             selectedBean={
               drawerItem

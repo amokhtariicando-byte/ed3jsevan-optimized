@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface EyvanLogoProps {
   variant?: 'header' | 'full' | 'mark';
@@ -23,6 +24,7 @@ export const EyvanLogo: React.FC<EyvanLogoProps> = ({
   tone = 'gold',
   className = '',
 }) => {
+  const { cafeInfo } = useLanguage();
   const strokeColor = TONE_COLOR[tone];
 
   const archEmblem = (
@@ -142,10 +144,10 @@ export const EyvanLogo: React.FC<EyvanLogoProps> = ({
             className="text-2xl font-semibold"
             style={{ color: strokeColor }}
           >
-            ایوان
+            {cafeInfo.brandName}
           </span>
           <span className="mt-0.5 text-xs font-medium text-[#78716C]">
-            کافه و رستوران
+            {cafeInfo.brandSubtitle}
           </span>
         </div>
       </div>
@@ -160,10 +162,10 @@ export const EyvanLogo: React.FC<EyvanLogoProps> = ({
           className="text-lg font-semibold whitespace-nowrap"
           style={{ color: strokeColor }}
         >
-          ایوان
+          {cafeInfo.brandName}
         </span>
         <span className="mt-1 text-[11px] font-normal text-[#78716C] whitespace-nowrap">
-          کافه و رستوران
+          {cafeInfo.brandSubtitle}
         </span>
       </span>
     </span>
