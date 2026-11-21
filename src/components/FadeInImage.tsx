@@ -79,7 +79,9 @@ export function isPrebakedTopdownSrc(src: string): boolean {
 const CUTOUT_DIMENSIONS: Record<string, { width: number; height: number }> = {
   'berry_shake.webp': { width: 199, height: 540 },
   'blue_spirulina.webp': { width: 190, height: 540 },
+  'brazilian_lemonade_flow.webp': { width: 274, height: 540 },
   'choco_shake.webp': { width: 199, height: 540 },
+  'chocolate_milkshake_flow.webp': { width: 279, height: 540 },
   'green_mojito.webp': { width: 247, height: 540 },
   'hot_espresso.webp': { width: 688, height: 513 },
   'hot_latte.webp': { width: 806, height: 511 },
@@ -87,9 +89,11 @@ const CUTOUT_DIMENSIONS: Record<string, { width: number; height: number }> = {
   'iced_espresso.webp': { width: 190, height: 540 },
   'iced_latte.webp': { width: 190, height: 540 },
   'matcha_latte.webp': { width: 190, height: 540 },
+  'mojito_flow.webp': { width: 300, height: 540 },
   'persian_cold.webp': { width: 247, height: 540 },
   'persian_tea.webp': { width: 603, height: 514 },
   'red_mocktail.webp': { width: 254, height: 540 },
+  'rokato_flow.webp': { width: 244, height: 540 },
   'strawberry_matcha.webp': { width: 190, height: 540 },
 };
 
