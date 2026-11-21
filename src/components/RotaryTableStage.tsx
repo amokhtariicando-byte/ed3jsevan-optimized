@@ -73,6 +73,27 @@ function writeStyle(
 }
 
 /**
+ * Wraps an angle delta to (-180, 180] so a drag crossing the ±180° seam
+ * doesn't jump the wheel.
+ */
+function wrapDeltaDeg(delta: number): number {
+  return ((delta + 540) % 360) - 180;
+}
+
+/**
+ * Pointer angle in degrees around a center point, in screen coordinates
+ * (y down), so increasing angle = clockwise — the same sense as rotateZ.
+ */
+function pointerAngleDeg(
+  clientX: number,
+  clientY: number,
+  centerX: number,
+  centerY: number,
+): number {
+  return (Math.atan2(clientY - centerY, clientX - centerX) * 180) / Math.PI;
+}
+
+/**
  * Returns a subtle colored caustic light-bounce RGBA for translucent iced glassware on white marble.
  */
 function getGlassCausticTint(cutoutPath: string): string | null {
@@ -163,7 +184,7 @@ const ComingSoonClochePlate = memo(function ComingSoonClochePlate({
           cy="130"
           r="102"
           fill="none"
-          stroke="#293B5F"
+          stroke="#6B7043"
           strokeWidth="4.5"
         />
         <circle
@@ -171,7 +192,7 @@ const ComingSoonClochePlate = memo(function ComingSoonClochePlate({
           cy="130"
           r="95"
           fill="none"
-          stroke="#AF894B"
+          stroke="#B5945B"
           strokeWidth="1.2"
           strokeOpacity="0.65"
         />
@@ -244,7 +265,7 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
         />
         <path
           d="M 140 358 C 260 335, 325 438, 456 410 C 578 384, 678 272, 845 302"
-          stroke="#AF894B"
+          stroke="#B5945B"
           strokeOpacity="0.14"
           strokeWidth="1.3"
         />
@@ -262,7 +283,7 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
         />
         <path
           d="M 650 115 C 615 240, 680 355, 620 495 C 565 620, 690 740, 745 875"
-          stroke="#AF894B"
+          stroke="#B5945B"
           strokeOpacity="0.13"
           strokeWidth="1.5"
         />
@@ -280,7 +301,7 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
         cy="500"
         r="476"
         fill="none"
-        stroke="#AF894B"
+        stroke="#B5945B"
         strokeOpacity="0.32"
         strokeWidth="1.5"
       />
@@ -289,7 +310,7 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
         cy="500"
         r="464"
         fill="none"
-        stroke="#293B5F"
+        stroke="#6B7043"
         strokeOpacity="0.09"
         strokeWidth="1"
       />
@@ -298,7 +319,7 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
         cy="500"
         r="182"
         fill="none"
-        stroke="#AF894B"
+        stroke="#B5945B"
         strokeOpacity="0.22"
         strokeWidth="1.3"
       />
@@ -307,7 +328,7 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
         cy="500"
         r="164"
         fill="none"
-        stroke="#293B5F"
+        stroke="#6B7043"
         strokeOpacity="0.08"
         strokeWidth="1"
       />
@@ -320,12 +341,12 @@ const MarbleTableInlays = memo(function MarbleTableInlays({
             y1={s.y1}
             x2={s.x2}
             y2={s.y2}
-            stroke="#AF894B"
+            stroke="#B5945B"
             strokeOpacity="0.14"
             strokeWidth="1.1"
             strokeDasharray="4 7"
           />
-          <circle cx={s.tx} cy={s.ty} r="3" fill="#AF894B" fillOpacity="0.48" />
+          <circle cx={s.tx} cy={s.ty} r="3" fill="#B5945B" fillOpacity="0.48" />
         </g>
       ))}
     </svg>
@@ -801,22 +822,22 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     active: boolean;
     startX: number;
     startY: number;
-    lastX: number;
-    lastY: number;
     startWheelAngle: number;
-    startTime: number;
-    lastMoveTime: number;
-    lastDx: number;
+    lastPointerAngle: number;
+    snapshotAngle: number;
+    snapshotTime: number;
+    centerX: number;
+    centerY: number;
   }>({
     active: false,
     startX: 0,
     startY: 0,
-    lastX: 0,
-    lastY: 0,
     startWheelAngle: 0,
-    startTime: 0,
-    lastMoveTime: 0,
-    lastDx: 0,
+    lastPointerAngle: 0,
+    snapshotAngle: 0,
+    snapshotTime: 0,
+    centerX: 0,
+    centerY: 0,
   });
 
   const handleStageWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -837,17 +858,27 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
+    // The disc's on-screen center (from its own bounding box) is the pivot for
+    // angular dragging — robust to layout, camera mode and scroll.
+    const discRect = wheelDiscRef.current?.getBoundingClientRect();
+    const centerX = discRect
+      ? discRect.left + discRect.width / 2
+      : e.clientX;
+    const centerY = discRect
+      ? discRect.top + discRect.height / 2
+      : e.clientY;
+    const angle = pointerAngleDeg(e.clientX, e.clientY, centerX, centerY);
     const now = performance.now();
     dragStartRef.current = {
       active: true,
       startX: e.clientX,
       startY: e.clientY,
-      lastX: e.clientX,
-      lastY: e.clientY,
       startWheelAngle: animRef.current.wheelAngle,
-      startTime: now,
-      lastMoveTime: now,
-      lastDx: 0,
+      lastPointerAngle: angle,
+      snapshotAngle: angle,
+      snapshotTime: now,
+      centerX,
+      centerY,
     };
   };
 
@@ -860,20 +891,39 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       finishDrag(e.clientX, e.clientY, false);
       return;
     }
-    const now = performance.now();
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    // 1:1 tracking along the dominant axis: the wheel IS the finger (no easing)
-    const along = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
-    const draggedAngle = drag.startWheelAngle + along * 0.35;
-    animRef.current = { ...animRef.current, wheelAngle: draggedAngle };
+    const angle = pointerAngleDeg(
+      e.clientX,
+      e.clientY,
+      drag.centerX,
+      drag.centerY,
+    );
+    // Too close to the hub: atan2 is unstable there, so track the angle but
+    // don't rotate — this also keeps tracking continuous if the finger crosses
+    // the center.
+    const radius = Math.hypot(
+      e.clientX - drag.centerX,
+      e.clientY - drag.centerY,
+    );
+    if (radius < 24) {
+      drag.lastPointerAngle = angle;
+      return;
+    }
+    // Angular 1:1 tracking: the wheel turns by exactly the angle the finger
+    // sweeps around the table center, so the grabbed cup follows the finger
+    // everywhere on the disc — including the front, where a linear mapping
+    // moved the cups opposite to the finger.
+    const delta = wrapDeltaDeg(angle - drag.lastPointerAngle);
+    drag.lastPointerAngle = angle;
+    animRef.current = {
+      ...animRef.current,
+      wheelAngle: animRef.current.wheelAngle + delta,
+    };
     paintFrame(animRef.current);
     // Refresh the trailing ~100ms velocity snapshot at most every 100ms
-    if (now - drag.lastMoveTime >= 100) {
-      drag.lastX = e.clientX;
-      drag.lastY = e.clientY;
-      drag.lastMoveTime = now;
-      drag.lastDx = along;
+    const now = performance.now();
+    if (now - drag.snapshotTime >= 100) {
+      drag.snapshotAngle = angle;
+      drag.snapshotTime = now;
     }
   };
 
@@ -891,8 +941,9 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
     const dy = clientY - drag.startY;
     const dist = Math.hypot(dx, dy);
 
-    // Tap: snap back instantly to the pre-drag angle — no step, no settle
-    if (dist < 10) {
+    // Tap: snap back instantly to the pre-drag angle — no step, no settle.
+    // 16px absorbs normal finger drift on phones so taps reliably select.
+    if (dist < 16) {
       animRef.current = {
         ...animRef.current,
         wheelAngle: drag.startWheelAngle,
@@ -901,15 +952,17 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
       return;
     }
 
-    const dominantDx = Math.abs(dx) >= Math.abs(dy);
-    const along = dominantDx ? dx : dy;
-    // Release velocity over the trailing ~100ms window (snapshot -> release)
-    const velocityPxPerMs =
-      Math.abs(along - drag.lastDx) / Math.max(1, now - drag.lastMoveTime);
+    // Release angular velocity over the trailing ~100ms window
+    // (snapshot -> release). 0.12 deg/ms ≈ a deliberate flick at any grab radius.
+    const angleDelta = wrapDeltaDeg(
+      drag.lastPointerAngle - drag.snapshotAngle,
+    );
+    const velocityDegPerMs =
+      angleDelta / Math.max(1, now - drag.snapshotTime);
 
-    // Fast flick: step once in the flick direction (drag-left/up = next)
-    if (allowFlick && velocityPxPerMs > 0.11) {
-      onStep(along - drag.lastDx < 0 ? 1 : -1);
+    // Fast flick: step once in the flick direction (counter-clockwise = next)
+    if (allowFlick && Math.abs(velocityDegPerMs) > 0.12) {
+      onStep(velocityDegPerMs < 0 ? 1 : -1);
       return;
     }
 
@@ -1001,7 +1054,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
         className="pointer-events-none absolute inset-0"
         style={{
           opacity: isFrontCamera ? 0 : 1,
-          background: `radial-gradient(circle at ${isMobile ? '50% 32%' : '25% 50%'}, rgba(212, 180, 124, 0.08) 0%, rgba(14, 21, 37, 0) 60%)`,
+          background: `radial-gradient(circle at ${isMobile ? '50% 32%' : '25% 50%'}, rgba(212, 180, 124, 0.08) 0%, rgba(248, 247, 242, 0) 60%)`,
         }}
       />
       <div
@@ -1011,8 +1064,8 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
         style={{
           opacity: isFrontCamera ? 1 : 0,
           background: isMobile
-            ? 'radial-gradient(ellipse 74% 40% at 50% 34%, rgba(212, 180, 124, 0.2) 0%, rgba(14, 21, 37, 0) 70%)'
-            : `radial-gradient(ellipse 44% 58% at ${drawerOpen ? 20 : 25}% 48%, rgba(212, 180, 124, 0.18) 0%, rgba(14, 21, 37, 0) 68%)`,
+            ? 'radial-gradient(ellipse 74% 40% at 50% 34%, rgba(212, 180, 124, 0.2) 0%, rgba(248, 247, 242, 0) 70%)'
+            : `radial-gradient(ellipse 44% 58% at ${drawerOpen ? 20 : 25}% 48%, rgba(212, 180, 124, 0.18) 0%, rgba(248, 247, 242, 0) 68%)`,
         }}
       />
 
@@ -1165,7 +1218,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                             : `${item.name} — انتخاب روی میز`
                         }
                         aria-pressed={isActive}
-                        className="eyvan-stage-btn eyvan-plate-scale group absolute inset-0 cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293B5F]"
+                        className="eyvan-stage-btn eyvan-plate-scale group absolute inset-0 cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B7043]"
                         style={{
                           transform: `scale(${plateScale})`,
                           transition: 'transform 300ms var(--ease-out)',
@@ -1174,7 +1227,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                         {overviewMode && (isActive || isHovered) && (
                           <span
                             aria-hidden="true"
-                            className="pointer-events-none absolute inset-[14%] rounded-full border-2 border-[#AF894B]/70"
+                            className="pointer-events-none absolute inset-[14%] rounded-full border-2 border-[#B5945B]/70"
                           />
                         )}
 
@@ -1197,7 +1250,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                             }}
                           />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center rounded-full border border-[#AF894B]/40 bg-[#152238] p-4 text-center text-xs font-medium text-[#F4F1EA]">
+                          <div className="flex h-full w-full items-center justify-center rounded-full border border-[#B5945B]/40 bg-[#FFFFFF] p-4 text-center text-xs font-medium text-[#2F321C]">
                             {item.name}
                           </div>
                         )}
@@ -1209,7 +1262,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
 
           {/* Non-Rotating Center Medallion (Full-Table Overview Mode only) */}
           <div
-            className={`pointer-events-none absolute top-1/2 left-1/2 flex h-[34%] w-[34%] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-[#AF894B]/28 bg-[#F2EFE9]/92 px-6 text-center transition-[opacity,transform] duration-300 ${
+            className={`pointer-events-none absolute top-1/2 left-1/2 flex h-[34%] w-[34%] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-[#B5945B]/28 bg-[#F2EFE9]/92 px-6 text-center transition-[opacity,transform] duration-300 ${
               overviewMode ? 'opacity-100' : 'opacity-0'
             }`}
             style={{
@@ -1221,7 +1274,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
             <EyvanLogo variant="mark" tone="navy" className="scale-90" />
             {category.comingSoon ? (
               <>
-                <p className="mt-2 text-lg font-semibold text-[#152238]">
+                <p className="mt-2 text-lg font-semibold text-[#2F321C]">
                   {category.name}
                 </p>
                 <p className="mt-1 text-xs font-medium text-[#6B7043]">
@@ -1233,10 +1286,10 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                 <p className="mt-2 text-xs text-[#6B7043]">
                   {category.shortName}
                 </p>
-                <p className="mt-0.5 text-lg font-semibold text-[#152238] leading-snug">
+                <p className="mt-0.5 text-lg font-semibold text-[#2F321C] leading-snug">
                   {displayCenterItem.name}
                 </p>
-                <p className="tabular-fa mt-1 text-sm font-medium text-[#AF894B]">
+                <p className="tabular-fa mt-1 text-sm font-medium text-[#6B7043]">
                   {formatToman(
                     calculateItemPrice(
                       displayCenterItem,
@@ -1245,12 +1298,12 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
                     ),
                   )}
                 </p>
-                <p className="mt-2 text-[11px] text-[#556070]">
+                <p className="mt-2 text-[11px] text-[#78716C]">
                   روی هر نوشیدنی کلیک کنید
                 </p>
               </>
             ) : (
-              <p className="mt-2 text-sm text-[#556070]">
+              <p className="mt-2 text-sm text-[#78716C]">
                 {toPersianDigits(items.length)} آیتم روی میز
               </p>
             )}
@@ -1386,7 +1439,7 @@ export const RotaryTableStage: React.FC<RotaryTableStageProps> = ({
             {[0, 1, 2].map((w) => (
               <span
                 key={w}
-                className="eyvan-steam-line block h-12 w-1 rounded-full bg-gradient-to-t from-transparent via-[#F4F1EA]/40 to-transparent blur-[1px]"
+                className="eyvan-steam-line block h-12 w-1 rounded-full bg-gradient-to-t from-transparent via-[#9AA16A]/35 to-transparent blur-[1px]"
                 style={{ animationDelay: `${w * 0.9}s` }}
               />
             ))}

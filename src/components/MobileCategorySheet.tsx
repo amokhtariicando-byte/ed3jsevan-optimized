@@ -61,20 +61,20 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
       }}
     >
       <div
-        className="eyvan-overlay-panel eyvan-sheet-panel w-full max-w-[540px] rounded-t-[20px] border-t border-x border-[rgba(244,241,234,0.14)] bg-[#101829] px-5 pt-4 pb-6 shadow-2xl"
+        className="eyvan-overlay-panel eyvan-sheet-panel w-full max-w-[540px] rounded-t-[20px] border-t border-x border-[rgba(107,112,67,0.14)] bg-[#FFFFFF] px-5 pt-4 pb-6 shadow-2xl"
         data-state={panelState === 'open' ? 'open' : 'closed'}
       >
-        <div className="mx-auto mb-3.5 h-1 w-10 rounded-full bg-[rgba(244,241,234,0.18)]" />
+        <div className="mx-auto mb-3.5 h-1 w-10 rounded-full bg-[rgba(107,112,67,0.18)]" />
 
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h2
               id="mobile-categories-title"
-              className="text-base font-semibold text-[#F8F5EE]"
+              className="text-base font-semibold text-[#2F321C]"
             >
               دسته‌بندی‌های منوی ایوان
             </h2>
-            <p className="mt-0.5 text-xs text-[#A8B3C5]">
+            <p className="mt-0.5 text-xs text-[#78716C]">
               انتخاب سریع از میان {toPersianDigits(MENU_CATEGORIES.length)} بخش منو
             </p>
           </div>
@@ -82,7 +82,7 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
             type="button"
             onClick={handleClose}
             aria-label="بستن فهرست دسته‌بندی‌ها"
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-[rgba(244,241,234,0.14)] bg-[#17233B] text-[#F8F5EE] transition-colors hover:border-[#D4B47C]"
+            className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-[rgba(107,112,67,0.14)] bg-[#FFFFFF] text-[#2F321C] transition-colors hover:border-[#B5945B]"
           >
             <X className="h-4 w-4" strokeWidth={1.7} />
           </button>
@@ -98,18 +98,18 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
               }}
               className={`col-span-2 flex items-center justify-between rounded-[12px] border px-4 py-3 text-right transition-colors ${
                 activeCategoryId === 'all'
-                  ? 'border-[#D4B47C] bg-[#1C2C49] text-[#F8F5EE]'
-                  : 'border-[rgba(244,241,234,0.1)] bg-[#152036] text-[#DCE2EC] hover:border-[rgba(244,241,234,0.24)]'
+                  ? 'border-[#B5945B] bg-[#FFFFFF] text-[#2F321C]'
+                  : 'border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] text-[#57534E] hover:border-[rgba(107,112,67,0.24)]'
               }`}
             >
               <div>
                 <p className="text-sm font-medium">همه بخش‌های منو</p>
-                <p className="mt-0.5 text-[11px] text-[#A8B3C5]">
+                <p className="mt-0.5 text-[11px] text-[#78716C]">
                   نمایش یکپارچه {toPersianDigits(MENU_ITEMS.length)} نوشیدنی و بخش‌های به‌زودی
                 </p>
               </div>
               {activeCategoryId === 'all' && (
-                <Check className="h-4 w-4 shrink-0 text-[#D4B47C]" strokeWidth={1.8} />
+                <Check className="h-4 w-4 shrink-0 text-[#6B7043]" strokeWidth={1.8} />
               )}
             </button>
           )}
@@ -130,8 +130,8 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
                 }}
                 className={`flex flex-col items-start justify-between rounded-[12px] border px-3.5 py-3 text-right transition-colors ${
                   isActive
-                    ? 'border-[#D4B47C] bg-[#1C2C49] text-[#F8F5EE]'
-                    : 'border-[rgba(244,241,234,0.1)] bg-[#152036] text-[#DCE2EC] hover:border-[rgba(244,241,234,0.24)]'
+                    ? 'border-[#B5945B] bg-[#FFFFFF] text-[#2F321C]'
+                    : 'border-[rgba(107,112,67,0.1)] bg-[#FFFFFF] text-[#57534E] hover:border-[rgba(107,112,67,0.24)]'
                 }`}
               >
                 <div className="flex w-full items-center justify-between gap-2">
@@ -140,14 +140,14 @@ export const MobileCategorySheet: React.FC<MobileCategorySheetProps> = ({
                   </span>
                   {isActive && (
                     <Check
-                      className="h-3.5 w-3.5 shrink-0 text-[#D4B47C]"
+                      className="h-3.5 w-3.5 shrink-0 text-[#6B7043]"
                       strokeWidth={1.9}
                     />
                   )}
                 </div>
                 <span
                   className={`tabular-fa mt-1.5 text-[11px] ${
-                    category.comingSoon ? 'text-[#9AA16A]' : 'text-[#A8B3C5]'
+                    category.comingSoon ? 'text-[#9AA16A]' : 'text-[#78716C]'
                   }`}
                 >
                   {category.comingSoon

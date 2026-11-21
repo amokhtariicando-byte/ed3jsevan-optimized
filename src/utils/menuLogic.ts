@@ -176,11 +176,11 @@ export function getSyrupById(syrupId?: string | null) {
  * Strictly anchored in Eyvan's brand logo colors: Deep Navy, Olive Green, Antique Bronze-Gold, Midnight Black.
  */
 export const BACKDROP_HEX_MAP: Record<BackdropTone, string> = {
-  navy: '#152238',
-  midnight: '#101A2C',
-  olive: '#232B1E',
-  bronze: '#251F18',
-  plum: '#241923',
+  navy: '#E7E9DC',
+  midnight: '#F2F1E9',
+  olive: '#E3E7CE',
+  bronze: '#F4EBD6',
+  plum: '#F0E7E2',
 };
 
 export function getBackdropHex(tone: BackdropTone): string {

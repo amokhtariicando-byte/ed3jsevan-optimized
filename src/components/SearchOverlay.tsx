@@ -80,11 +80,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       }}
     >
       <div
-        className="eyvan-overlay-panel eyvan-search-panel w-full max-w-[580px] overflow-hidden rounded-[16px] border border-[rgba(244,241,234,0.12)] bg-[#101829] shadow-2xl"
+        className="eyvan-overlay-panel eyvan-search-panel w-full max-w-[580px] overflow-hidden rounded-[16px] border border-[rgba(107,112,67,0.12)] bg-[#FFFFFF] shadow-2xl"
         data-state={panelState === 'open' ? 'open' : 'closed'}
       >
-        <div className="flex items-center gap-3 border-b border-[rgba(244,241,234,0.09)] px-4 py-3.5">
-          <Search className="h-4 w-4 shrink-0 text-[#D4B47C]" strokeWidth={1.6} />
+        <div className="flex items-center gap-3 border-b border-[rgba(107,112,67,0.09)] px-4 py-3.5">
+          <Search className="h-4 w-4 shrink-0 text-[#6B7043]" strokeWidth={1.6} />
           <input
             ref={inputRef}
             id="eyvan-global-search"
@@ -92,27 +92,27 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="جستجو بین ۶۷ نوشیدنی (مثلاً لاته، چای زعفران، ماچا، نوتلا)"
-            className="w-full bg-transparent text-sm text-[#F4F1EA] placeholder:text-[#8B95A6] focus:outline-none"
+            className="w-full bg-transparent text-sm text-[#2F321C] placeholder:text-[#A8A29E] focus:outline-none"
           />
           <button
             type="button"
             onClick={handleClose}
             aria-label="بستن جستجو"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-[#8B95A6] transition-colors hover:bg-[#1A2742] hover:text-[#F4F1EA]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-[#A8A29E] transition-colors hover:bg-[#FFFFFF] hover:text-[#2F321C]"
           >
             <X className="h-4 w-4" strokeWidth={1.6} />
           </button>
         </div>
 
         <div className="eyvan-scroll max-h-[60vh] overflow-y-auto p-3">
-          <p className="px-2 pb-2 text-xs text-[#8B95A6]">
+          <p className="px-2 pb-2 text-xs text-[#A8A29E]">
             {query.trim()
               ? `${toPersianDigits(results.length)} نتیجه یافت شد`
               : 'پیشنهادهای محبوب روی میز ایوان'}
           </p>
 
           {results.length === 0 ? (
-            <div className="py-10 text-center text-sm text-[#C4CCD8]">
+            <div className="py-10 text-center text-sm text-[#78716C]">
               نوشیدنی با عبارت «{query}» پیدا نشد
             </div>
           ) : (
@@ -135,7 +135,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                         onSelectMenuItem(item);
                         handleClose();
                       }}
-                      className="flex w-full items-center justify-between gap-3 rounded-[10px] px-2.5 py-2 text-right transition-colors hover:bg-[#192640] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4B47C]"
+                      className="flex w-full items-center justify-between gap-3 rounded-[10px] px-2.5 py-2 text-right transition-colors hover:bg-[#FFFFFF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B7043]"
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-[#EFECE6]">
@@ -149,16 +149,16 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-[#F4F1EA]">
+                          <p className="truncate text-sm font-medium text-[#2F321C]">
                             {item.name}
                           </p>
-                          <p className="truncate text-xs text-[#8B95A6]">
+                          <p className="truncate text-xs text-[#A8A29E]">
                             {categoryNameMap.get(item.categoryId)}
                             {item.supportsSyrup ? ' · قابل افزودن سیروپ' : ''}
                           </p>
                         </div>
                       </div>
-                      <span className="tabular-fa shrink-0 text-xs font-medium text-[#D4B47C]">
+                      <span className="tabular-fa shrink-0 text-xs font-medium text-[#6B7043]">
                         {formatToman(basePrice)}
                       </span>
                     </button>

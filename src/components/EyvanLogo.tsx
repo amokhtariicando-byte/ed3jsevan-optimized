@@ -7,10 +7,10 @@ interface EyvanLogoProps {
 }
 
 const TONE_COLOR = {
-  gold: '#D4B47C',
+  gold: '#B5945B',
   olive: '#9AA16A',
-  ivory: '#F4F1EA',
-  navy: '#293B5F',
+  ivory: '#2F321C',
+  navy: '#6B7043',
 } as const;
 
 /**
@@ -144,7 +144,7 @@ export const EyvanLogo: React.FC<EyvanLogoProps> = ({
           >
             ایوان
           </span>
-          <span className="mt-0.5 text-xs font-medium text-[#B8C0CC]">
+          <span className="mt-0.5 text-xs font-medium text-[#78716C]">
             کافه و رستوران
           </span>
         </div>
@@ -162,7 +162,7 @@ export const EyvanLogo: React.FC<EyvanLogoProps> = ({
         >
           ایوان
         </span>
-        <span className="mt-1 text-[11px] font-normal text-[#B8C0CC] whitespace-nowrap">
+        <span className="mt-1 text-[11px] font-normal text-[#78716C] whitespace-nowrap">
           کافه و رستوران
         </span>
       </span>
