@@ -120,6 +120,7 @@ const IMG = {
   brazilianLemonadeFlow: 'src/assets/images/topdown_brazilian_lemonade_flow.webp',
   rokatoFlow: 'src/assets/images/topdown_rokato_flow.webp',
   chocoShakeFlow: 'src/assets/images/topdown_chocolate_milkshake_flow.webp',
+  redLoveFlow: 'src/assets/images/topdown_red-love_flow.webp',
 } as const;
 
 const FRONT_IMG = {
@@ -145,6 +146,7 @@ const FRONT_IMG = {
   brazilianLemonadeFlow: 'src/assets/images/eyvan_brazilian_lemonade_flow.webp',
   rokatoFlow: 'src/assets/images/eyvan_rokato_flow.webp',
   chocoShakeFlow: 'src/assets/images/eyvan_chocolate_milkshake_flow.webp',
+  redLoveFlow: 'src/assets/images/eyvan_red-love_flow.webp',
 } as const;
 
 const CUTOUT_IMG = {
@@ -166,6 +168,7 @@ const CUTOUT_IMG = {
   brazilianLemonadeFlow: 'src/assets/images/cutouts/brazilian_lemonade_flow.webp',
   rokatoFlow: 'src/assets/images/cutouts/rokato_flow.webp',
   chocoShakeFlow: 'src/assets/images/cutouts/chocolate_milkshake_flow.webp',
+  redLoveFlow: 'src/assets/images/cutouts/red-love_flow.webp',
 } as const;
 
 const FRONT_TO_CUTOUT: Record<string, string> = {
@@ -191,6 +194,7 @@ const FRONT_TO_CUTOUT: Record<string, string> = {
   [FRONT_IMG.brazilianLemonadeFlow]: CUTOUT_IMG.brazilianLemonadeFlow,
   [FRONT_IMG.rokatoFlow]: CUTOUT_IMG.rokatoFlow,
   [FRONT_IMG.chocoShakeFlow]: CUTOUT_IMG.chocoShakeFlow,
+  [FRONT_IMG.redLoveFlow]: CUTOUT_IMG.redLoveFlow,
 };
 
 export const MENU_CATEGORIES: MenuCategory[] = [
@@ -1171,8 +1175,8 @@ const RAW_MENU_ITEMS: RawMenuItem[] = [
     description:
       'ماکتل یاقوتی و گازدار با ترکیب میوه‌های قرمز تازه و عطر مرکبات.',
     price: 260,
-    image: IMG.mocktail,
-    frontImage: FRONT_IMG.redMocktail,
+    image: IMG.redLoveFlow,
+    frontImage: FRONT_IMG.redLoveFlow,
     prefersFrontView: true,
     plateAngle: 0,
     backdropTone: 'plum',
