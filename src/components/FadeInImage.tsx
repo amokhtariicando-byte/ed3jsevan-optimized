@@ -92,6 +92,7 @@ const CUTOUT_DIMENSIONS: Record<string, { width: number; height: number }> = {
   'mojito_flow.webp': { width: 300, height: 540 },
   'persian_cold.webp': { width: 247, height: 540 },
   'persian_tea.webp': { width: 603, height: 514 },
+  'red-love_flow.webp': { width: 333, height: 540 },
   'red_mocktail.webp': { width: 254, height: 540 },
   'rokato_flow.webp': { width: 244, height: 540 },
   'strawberry_matcha.webp': { width: 190, height: 540 },
